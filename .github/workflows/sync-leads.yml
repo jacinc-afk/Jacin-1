@@ -1,8 +1,9 @@
 name: Sync RingCentral voicemails to AccuLynx leads
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
+  # Uncomment the schedule once all repo secrets are configured:
+  # schedule:
+  #   - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -20,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - run: npm run sync
         env:

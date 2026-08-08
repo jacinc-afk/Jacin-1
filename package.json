@@ -1,0 +1,13 @@
+{
+  "name": "ringcentral-acculynx-leads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pulls new RingCentral voicemail messages and creates matching leads in AccuLynx.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "sync": "node src/index.js"
+  }
+}

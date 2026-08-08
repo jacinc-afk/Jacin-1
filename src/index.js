@@ -32,12 +32,18 @@ async function main() {
       confident ? null : 'Auto-classified with low confidence — please verify Reroof vs. Service.',
     ].filter(Boolean);
 
+    const callerName = (caller.name || '').trim();
+    const nameParts = callerName.split(' ');
+    const firstName = nameParts[0] || null;
+    const lastName = nameParts.slice(1).join(' ') || null;
+
     try {
       await createLead({
-        name: caller.name || null,
+        firstName,
+        lastName,
         phone: caller.phoneNumber || null,
-        email: null, // voicemails don't carry an email address
-        type,
+        email: null,
+        workType: type,
         notes: notesLines.join('\n'),
       });
       created += 1;

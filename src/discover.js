@@ -65,13 +65,11 @@ const LOOKUPS = [
     ],
   },
   {
+    // Lead sources sit under /company-settings/leads/, not job-file-settings
+    // — a third prefix shape across these five lookups. Lead sources can also
+    // nest: each may carry a `children` array of sub-sources.
     label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
-    candidates: [
-      '/company-settings/job-file-settings/lead-sources',
-      '/company-settings/lead-file-settings/lead-sources',
-      '/company-settings/lead-sources',
-      '/company-settings/job-file-settings/active-lead-sources',
-    ],
+    candidates: ['/company-settings/leads/lead-sources'],
   },
 ];
 

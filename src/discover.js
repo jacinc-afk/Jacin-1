@@ -29,34 +29,51 @@ const CONTROLS = [
   { path: '/ping', note: 'documented as Check if the API Server Is Responsive' },
 ];
 
-// Paths inferred from operationIds in the OpenAPI index, e.g.
-// getCompanySettingsJobSettingsWorkTypes -> /companysettings/jobsettings/worktypes.
-// Unconfirmed, hence multiple candidates each.
+// The published path for Get Contact Types is /contacts/contact-types, so
+// multi-word segments are kebab-cased — the earlier round of guesses ran them
+// together and missed every time. Candidates below apply that convention.
+//
+// Because routing resolves before authentication, an invalid key still tells
+// paths apart: a route that exists answers 401, one that does not answers 404.
+// So this survey is meaningful even before the key is fixed.
 const LOOKUPS = [
   {
     label: 'Contact Types  (GUID -> required by POST /contacts)',
-    candidates: ['/contacts/types', '/contacttypes', '/companysettings/contacttypes'],
+    // Confirmed from the published spec.
+    candidates: ['/contacts/contact-types'],
   },
   {
     label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
     candidates: [
-      '/leadsources',
-      '/companysettings/leadsources',
-      '/companysettings/jobsettings/leadsources',
-      '/companysettings/leadsettings/leadsources',
+      '/company-settings/lead-sources',
+      '/lead-sources',
+      '/company-settings/lead-settings/lead-sources',
+      '/leads/lead-sources',
     ],
   },
   {
     label: 'Work Types     (INTEGER -> jobPost.workType.id)',
-    candidates: ['/companysettings/jobsettings/worktypes', '/worktypes'],
+    candidates: [
+      '/company-settings/job-settings/work-types',
+      '/jobs/work-types',
+      '/company-settings/work-types',
+    ],
   },
   {
     label: 'Job Categories (INTEGER -> jobPost.jobCategory.id)',
-    candidates: ['/companysettings/jobsettings/jobcategories', '/jobcategories'],
+    candidates: [
+      '/company-settings/job-settings/job-categories',
+      '/jobs/job-categories',
+      '/company-settings/job-categories',
+    ],
   },
   {
     label: 'Trade Types    (GUID -> jobPost.tradeTypes[].id)',
-    candidates: ['/companysettings/jobsettings/tradetypes', '/tradetypes'],
+    candidates: [
+      '/company-settings/job-settings/trade-types',
+      '/jobs/trade-types',
+      '/company-settings/trade-types',
+    ],
   },
 ];
 
@@ -112,6 +129,15 @@ async function main() {
         printItems(res.json);
         break;
       }
+
+      // 401 means the route matched and only the credential was rejected, so
+      // the path is right even though no data came back. Stop here rather
+      // than trying the remaining candidates.
+      if (res.status === 401) {
+        console.log('    PATH CONFIRMED (401 = route exists, key rejected)');
+        break;
+      }
+
       report(res, '  ');
       if (res.status === 429) break;
     }

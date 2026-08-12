@@ -1,0 +1,28 @@
+name: Discover RingCentral channels
+
+# Manual only. Resolves the three lead channels to the internal chat IDs the
+# API uses, and confirms the JWT can actually see them — they are private
+# teams, visible only to their members. Read-only: it posts nothing.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: List RingCentral chats
+        run: node src/discover-ringcentral.js
+        env:
+          RC_CLIENT_ID: ${{ secrets.RC_CLIENT_ID }}
+          RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}
+          RC_JWT: ${{ secrets.RC_JWT }}
+          RC_SERVER_URL: ${{ secrets.RC_SERVER_URL }}

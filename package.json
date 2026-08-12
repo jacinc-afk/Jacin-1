@@ -8,6 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "discover": "node src/discover.js"
+    "discover": "node src/discover.js",
+    "test": "node --test 'test/**/*.test.js'"
   }
 }

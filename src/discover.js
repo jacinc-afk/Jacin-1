@@ -43,36 +43,34 @@ const LOOKUPS = [
     candidates: ['/contacts/contact-types'],
   },
   {
-    label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
-    candidates: [
-      '/company-settings/lead-sources',
-      '/lead-sources',
-      '/company-settings/lead-settings/lead-sources',
-      '/leads/lead-sources',
-    ],
-  },
-  {
+    // Work types live under job-file-settings, not job-settings, despite the
+    // operationId reading getCompanySettingsJobSettingsWorkTypes. The
+    // operationIds are not a reliable guide to the paths, so the siblings
+    // below are derived from this confirmed one rather than from their names.
     label: 'Work Types     (INTEGER -> jobPost.workType.id)',
-    candidates: [
-      '/company-settings/job-settings/work-types',
-      '/jobs/work-types',
-      '/company-settings/work-types',
-    ],
+    candidates: ['/company-settings/job-file-settings/work-types'],
   },
   {
     label: 'Job Categories (INTEGER -> jobPost.jobCategory.id)',
     candidates: [
-      '/company-settings/job-settings/job-categories',
-      '/jobs/job-categories',
-      '/company-settings/job-categories',
+      '/company-settings/job-file-settings/job-categories',
+      '/company-settings/job-file-settings/categories',
     ],
   },
   {
     label: 'Trade Types    (GUID -> jobPost.tradeTypes[].id)',
     candidates: [
-      '/company-settings/job-settings/trade-types',
-      '/jobs/trade-types',
-      '/company-settings/trade-types',
+      '/company-settings/job-file-settings/trade-types',
+      '/company-settings/job-file-settings/trades',
+    ],
+  },
+  {
+    label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
+    candidates: [
+      '/company-settings/job-file-settings/lead-sources',
+      '/company-settings/lead-file-settings/lead-sources',
+      '/company-settings/lead-sources',
+      '/company-settings/job-file-settings/active-lead-sources',
     ],
   },
 ];

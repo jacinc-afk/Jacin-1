@@ -1,74 +1,112 @@
-# RingCentral → AccuLynx lead sync
+# RingCentral team chat → AccuLynx leads
 
-Watches your RingCentral voicemail box and automatically creates a lead in
-AccuLynx for each new voicemail, with the caller's info and a transcription
-(when available) pre-filled into the notes.
+Takes the lead intake forms that get posted into RingCentral team chat and
+creates matching leads in AccuLynx.
 
-## How it works
+**Status: not built yet.** This repo currently contains a read-only discovery
+script and verified notes. The sync itself is blocked on reading the account's
+own AccuLynx IDs — see [Next step](#next-step).
 
-Every 15 minutes a GitHub Action (`.github/workflows/sync-leads.yml`) runs
-`src/index.js`, which:
+## Where the leads come from
 
-1. Logs in to RingCentral and fetches voicemail messages received since the
-   last run (`src/ringcentral.js`).
-2. Pulls each voicemail's transcription, if your account has voicemail-to-text
-   enabled.
-3. Guesses **Reroof** vs. **Service** from keywords in the transcription
-   (`src/classify.js`) — defaults to Service and flags the lead as
-   low-confidence in the notes when it can't tell.
-4. Creates the lead in AccuLynx with name/phone (from caller ID), type, and
-   notes (`src/acculynx.js`).
-5. Records which voicemail IDs it already processed in `state/processed.json`
-   so the same voicemail never creates two leads, then commits that file back
-   to the repo.
+Intake gets posted into private RingCentral **team chat** channels as a
+structured form:
 
-## One-time setup
-
-### 1. RingCentral app
-
-1. Go to [developers.ringcentral.com](https://developers.ringcentral.com) →
-   create an app using the **JWT auth flow**.
-2. Grant it the **Read Messages** permission (and make sure voicemail-to-text
-   is turned on for the extension you're reading, if you want transcriptions —
-   Settings → Voicemail in RingCentral).
-3. Generate a JWT credential for the extension whose voicemail you want to
-   read.
-
-### 2. AccuLynx API key
-
-Generate an API key in AccuLynx under Settings → API, and confirm the lead
-field names AccuLynx expects for your account — `src/acculynx.js` uses the
-commonly documented field names (`firstName`, `phoneNumbers`, `projectType`,
-etc.) as a starting point, but you should check these against your account's
-API reference before relying on this in production, and adjust
-`src/acculynx.js` if they differ.
-
-### 3. Add repo secrets
-
-In this repo's Settings → Secrets and variables → Actions, add:
-
-- `RC_CLIENT_ID`, `RC_CLIENT_SECRET`, `RC_JWT` (and `RC_SERVER_URL` only if
-  you're testing against the RingCentral sandbox)
-- `ACCULYNX_API_KEY` (and `ACCULYNX_API_BASE` only if it differs from the
-  default)
-
-Once the secrets are set, the workflow starts running automatically on its
-15-minute schedule. You can also trigger it manually from the Actions tab
-("Run workflow").
-
-## Local testing
-
-```bash
-cp .env.example .env   # fill in your credentials
-npm run sync
+```
+Customer Name: Gregory Barnett
+Phone: 5613692032
+Email: Barnett.Greg89@gmail.com
+Property Address: 1520 S 24th Ct, Riviera Beach, FL 33404
+Reason for Call: he is looking for a terrace roof
+Problem or Request: he is asking for somebody to reach out for the estimate
+Lead Source: previous client
+Notes: looking for an estimate
 ```
 
-## Known limitations
+The channel determines the work type, so no guessing is needed:
 
-- Voicemails rarely include an email address, so leads are created without
-  one — add it manually in AccuLynx once you have it.
-- Reroof vs. Service classification is a simple keyword match, not a
-  transcription-quality analysis — check the notes on low-confidence leads.
-- If your RingCentral account doesn't have voicemail-to-text enabled, leads
-  are still created (from caller ID) but with a note to go listen to the
-  recording in RingCentral.
+| Channel | Work type |
+| --- | --- |
+| `SB \| Re Roof` | Reroof |
+| `SB \| Sales Leads & Follow-Up` | Reroof |
+| `SB \| Repairs & Active Leaks` | Service / Repair |
+
+Those channels also carry ordinary conversation, so only posts containing
+`Customer Name:` are treated as leads.
+
+## What has actually been verified
+
+Checked against RingCentral's and AccuLynx's own published specs, not assumed:
+
+**RingCentral**
+
+- Team chat is the Team Messaging API (`/team-messaging/v1/...`), a different
+  system from the message store that holds voicemail, SMS and fax.
+- The required app scope is **`TeamMessaging`** (legacy name `Glip`).
+  `ReadMessages` is the message store and is the wrong scope here.
+- An app scope alone is not sufficient: the user whose JWT is used must also
+  hold a role with the matching user permission.
+- Real-time delivery is possible — webhook subscriptions support the
+  `/team-messaging/v1/posts` event filter, emitting `PostAdded`.
+
+**AccuLynx** (API V2, `https://api.acculynx.com/api/v2`, bearer auth)
+
+- There is no create-lead endpoint. A lead is a **job** created in the
+  `Lead (Unassigned)` milestone via `POST /jobs`.
+- `POST /jobs` requires `contact: { id }` — a reference to an existing
+  contact. The contact has to be created first via `POST /contacts`.
+- ID types are not uniform. `workType.id` and `jobCategory.id` are
+  **integers**; `leadSource.id` and `tradeTypes[].id` are **UUIDs**.
+- Addresses differ between the two endpoints. `POST /contacts` takes
+  `state: { id: <int> }` and `country: { id: <int> }`; `POST /jobs` takes
+  `state: "FL"` and `country: "US"` as plain strings.
+- `locationAddress` is all-or-nothing: supply the object and `street1`,
+  `city`, `state`, `country` and `zipCode` are all required.
+- Phone numbers must be exactly 10 digits (`^\d{10}$`) — no spaces, dashes,
+  parentheses or country code.
+- `notes` is capped at 1000 characters.
+- Writes are rate limited (`company-write:hourly`, `company-write:daily`) and
+  return 429 with `Retry-After`.
+
+## Next step
+
+Creating a job means referencing IDs that are specific to this AccuLynx
+account. Those have to be read out of the account before the sync can be
+written against them.
+
+```bash
+ACCULYNX_API_KEY=xxxxx npm run discover
+```
+
+Or, to avoid handling the key locally, run the **Discover AccuLynx IDs**
+workflow from the Actions tab, which reads it from the `ACCULYNX_API_KEY`
+repository secret. Either way the script only issues GET requests and changes
+nothing.
+
+Its output supplies the work type IDs for Reroof and Service/Repair, a lead
+source ID, and the contact type IDs required by `POST /contacts`.
+
+The lookup paths in `src/discover.js` are inferred from operationIds in
+AccuLynx's published OpenAPI index and are not confirmed, so the script tries
+each candidate and reports a clean 404 rather than failing silently.
+
+## Then
+
+1. Map the discovered IDs to the three channels.
+2. Build the sync: read posts → parse the intake form → `POST /contacts` →
+   `POST /jobs` → stamp the RingCentral post ID onto the job as an external
+   reference so a post can never produce two leads.
+3. Decide polling versus webhooks. Polling runs free on a schedule in Actions;
+   webhooks are near-instant but need somewhere to receive them, which a
+   scheduled Action cannot provide.
+
+## Known gaps
+
+- Intake posts do not always fill every field — `Urgency`, `Assigned To` and
+  `Best Callback Time` are frequently blank.
+- Two different customers were seen sharing one phone number in intake, which
+  would produce uncallable leads. Worth checking where that number comes from
+  before automating.
+- Customers who call and hang up without leaving a voicemail never reach team
+  chat at all. They exist only in the RingCentral call log, which nothing here
+  reads.

@@ -1,0 +1,26 @@
+name: Discover AccuLynx IDs
+
+# Manual only. Reads the account's own IDs (contact types, lead sources, work
+# types, job categories, trade types) so the lead-creation code can reference
+# them. GET requests only — this workflow creates and changes nothing in
+# AccuLynx.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read AccuLynx IDs
+        run: npm run discover
+        env:
+          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}

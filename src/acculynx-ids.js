@@ -76,12 +76,16 @@ export const LEAD_SOURCES = {
 
 // Which RingCentral team channel maps to which AccuLynx work type.
 //
-// UNRESOLVED: the channels are named for reroof and service/repair, but this
-// account has no "Reroof" work type, and "Service" and "Repair" are two
-// separate ones. Awaiting a decision on which work type each channel should
-// produce before this is filled in.
+// The channels are named for reroof and service/repair, but this account has
+// no "Reroof" work type and keeps Service and Repair as separate ones, so the
+// names do not map across directly. These pairings were chosen deliberately:
+// reroof work is booked as New, and leak/repair work as Repair rather than
+// Service.
+//
+// Only posts containing "Customer Name:" are treated as leads — all three
+// channels also carry ordinary conversation.
 export const CHANNEL_WORK_TYPE = {
-  // 'SB | Re Roof': WORK_TYPES.???,
-  // 'SB | Sales Leads & Follow-Up': WORK_TYPES.???,
-  // 'SB | Repairs & Active Leaks': WORK_TYPES.???,
+  'SB | Re Roof': WORK_TYPES.New,
+  'SB | Sales Leads & Follow-Up': WORK_TYPES.New,
+  'SB | Repairs & Active Leaks': WORK_TYPES.Repair,
 };

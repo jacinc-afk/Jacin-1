@@ -1,0 +1,13 @@
+{
+  "name": "ringcentral-acculynx-leads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turns lead intake posts in RingCentral team chat into leads in AccuLynx.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "discover": "node src/discover.js"
+  }
+}

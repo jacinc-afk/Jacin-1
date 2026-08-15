@@ -107,14 +107,17 @@ export const USERS = {
   'Noah Damiani': '370525c2-e310-4889-8271-9e4d1b411ee8',
 };
 
-// Reroof leads are assigned in rotation. Warranty leads all go to Jacin.
-// Repair leads are not assigned.
+// Reroof leads rotate between three people; repair and warranty each go to
+// one. The rotation applies only where there is a rotation to apply — a lead
+// whose intake names a specific salesperson, or whose customer has prior jobs
+// under a different administrator, is flagged rather than assigned.
 export const REROOF_ROTATION = [
   USERS['Jacin Carreiro'],
   USERS['Francis Ferrer'],
   USERS['Alex Patapis'],
 ];
 
+export const REPAIR_OWNER = USERS['Alex Patapis'];
 export const WARRANTY_OWNER = USERS['Jacin Carreiro'];
 
 // Which RingCentral team channel maps to which AccuLynx work type.

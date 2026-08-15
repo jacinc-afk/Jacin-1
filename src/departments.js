@@ -90,13 +90,45 @@ export const REROOF = {
 // Awaiting their own API keys and a discovery run. Deliberately left empty
 // rather than filled with another company's IDs, which would attach the wrong
 // person or reject the write outright.
+// The original ACCULYNX_API_KEY turned out to point here — this company
+// returns identical user IDs and lead source GUIDs to that first discovery
+// run, which is how it was identified rather than guessed.
 export const SERVICE = {
   key: 'service',
   company: 'SeaBreeze Roofing Service Department',
   keyVar: 'ACCULYNX_KEY_SERVICE',
   assignment: { mode: 'fixed', people: ['Alex Patapis'] },
-  users: {},
-  leadSources: {},
+
+  users: {
+    'Alex Patapis': '040abed8-78e8-49ff-942f-40c99f36055b',
+    'Andrei Smith': 'a79ad21e-4c29-462c-ae72-bc79b417ea2e',
+    'Aubrie Parker': '43c6df95-ad18-445d-9667-c124c7acde9f',
+    'Francis Ferrer': '2141584c-179b-486c-ac9d-d0e39ac9a96f',
+    'Jacin Carreiro': 'c7e7553b-49ea-4499-826a-c2765fda6de3',
+    'Noah Damiani': '370525c2-e310-4889-8271-9e4d1b411ee8',
+  },
+
+  leadSources: {
+    'Google Local Services Ad': 'bef198c1-7079-40b7-8997-47bb43fdbdad',
+    'Google Search': 'a6176ea9-0634-4649-8524-d9203e44efc0',
+    'Insurance Express': '8ee68d19-47e2-477f-b219-d63a6bddd2cb',
+    'Internet-Other': '6a0b7284-282e-4401-9d9b-5f8fb1eb0871',
+    'Johnny Cagle': '72044331-894d-4d7d-bc45-7c4f90b331a2',
+    'Jonathan Avila': 'f2bc1114-6c06-4aa3-affd-97393b3c09e4',
+    'Kiaros Roofing': '00fb1fbd-c56a-4df5-a0f3-b23ce8f1af7c',
+    'Live Chat': 'c4710769-c5f0-447d-a261-64f07ee9b88c',
+    Other: '5d853662-bcfc-4d4a-ba5e-dd148584b866',
+    'Previous Customer': '6907f009-1057-457c-b0c6-5ce0e8b3878b',
+    Realtor: 'd8c2ac3d-a0c9-49b7-a91f-bbc931244dbc',
+    Referral: '474a64d8-c55a-4607-a5c5-ab88ce90dc26',
+    'Roof Calculator': '2baaba36-91f0-45ff-8d19-cabba1d4882e',
+    'Scott Dacunha': 'd077135c-97a6-4545-bdb0-6e44ee0d5eca',
+    Truck: 'd646abcf-343f-4a36-ac6b-8154c183900f',
+    Website: '0e5411c1-9553-42fa-8ff6-36aaff81cd03',
+    'Working in the neighborhood': '3b8cc022-b853-4c69-8640-07553a0c86a8',
+    'Yard Sign': '1dab06f7-b122-40f5-8c9b-9451a1d270e9',
+    Yelp: '58eab576-5307-4df1-b0e8-bd0c6c16cbd2',
+  },
 };
 
 export const WARRANTIES = {

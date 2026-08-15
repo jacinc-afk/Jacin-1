@@ -49,8 +49,35 @@ export async function findJobForPost(postId) {
     throw new Error(`External reference lookup failed (${res.status}): ${truncate(res.body, 300)}`);
   }
 
-  const items = res.json?.items ?? [];
-  return items.length > 0 ? items[0] : null;
+  // The read endpoint's response schema is not something I have seen. The
+  // write returns a bare object rather than a collection, and assuming
+  // { items: [...] } here silently found nothing — which reads exactly like
+  // "no duplicate" and recreated a lead that already existed. So accept any
+  // of the plausible shapes, and require a jobId before believing a match,
+  // so an error body can never be mistaken for one.
+  const matches = normaliseReferences(res.json).filter((r) => r?.jobId);
+
+  if (matches.length === 0 && res.json != null) {
+    // Learn the real shape from the first run rather than guessing again.
+    console.log(`      (no match; response shape: ${describeShape(res.json)})`);
+  }
+
+  return matches.length > 0 ? matches[0] : null;
+}
+
+function normaliseReferences(json) {
+  if (json == null) return [];
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json.items)) return json.items;
+  if (Array.isArray(json.records)) return json.records;
+  if (typeof json === 'object' && 'jobId' in json) return [json];
+  return [];
+}
+
+function describeShape(json) {
+  if (Array.isArray(json)) return `array(${json.length})`;
+  if (typeof json === 'object') return `object{${Object.keys(json).join(',')}}`;
+  return typeof json;
 }
 
 /**

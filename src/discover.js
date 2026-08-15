@@ -71,6 +71,21 @@ const LOOKUPS = [
     label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
     candidates: ['/company-settings/leads/lead-sources'],
   },
+  {
+    // Dedup depends on this: each job gets stamped with the RingCentral post
+    // that produced it, and the sync asks AccuLynx whether a post has already
+    // become a job rather than tracking that itself. A wrong path here means
+    // duplicate leads, so the path is probed rather than assumed. `source` is
+    // documented as mandatory, so anything other than 404 means the route
+    // exists.
+    label: 'Job External Refs (dedup — any non-404 confirms the path)',
+    candidates: [
+      '/jobs/external-references?source=probe',
+      '/jobs/externalreferences?source=probe',
+      '/job-external-references?source=probe',
+      '/jobs/external-reference?source=probe',
+    ],
+  },
 ];
 
 async function main() {

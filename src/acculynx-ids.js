@@ -97,6 +97,26 @@ const LEAD_SOURCES_BY_TARGET = {
 export const LEAD_SOURCES =
   LEAD_SOURCES_BY_TARGET[process.env.ACCULYNX_TARGET] ?? LEAD_SOURCES_BY_TARGET.production;
 
+// AccuLynx users, for assigning a lead's company administrator.
+export const USERS = {
+  'Alex Patapis': '040abed8-78e8-49ff-942f-40c99f36055b',
+  'Andrei Smith': 'a79ad21e-4c29-462c-ae72-bc79b417ea2e',
+  'Aubrie Parker': '43c6df95-ad18-445d-9667-c124c7acde9f',
+  'Francis Ferrer': '2141584c-179b-486c-ac9d-d0e39ac9a96f',
+  'Jacin Carreiro': 'c7e7553b-49ea-4499-826a-c2765fda6de3',
+  'Noah Damiani': '370525c2-e310-4889-8271-9e4d1b411ee8',
+};
+
+// Reroof leads are assigned in rotation. Warranty leads all go to Jacin.
+// Repair leads are not assigned.
+export const REROOF_ROTATION = [
+  USERS['Jacin Carreiro'],
+  USERS['Francis Ferrer'],
+  USERS['Alex Patapis'],
+];
+
+export const WARRANTY_OWNER = USERS['Jacin Carreiro'];
+
 // Which RingCentral team channel maps to which AccuLynx work type.
 //
 // Keyed by chat ID rather than name, since that is what the API returns and

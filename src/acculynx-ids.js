@@ -88,8 +88,13 @@ export const LEAD_SOURCES = {
 //
 // Only posts containing "Customer Name:" are treated as leads — all three
 // channels also carry ordinary conversation.
+// Names here are display labels only — they appear in run output and in the
+// AccuLynx notes. Renaming a channel in RingCentral keeps its ID, so the sync
+// follows it and only these labels go stale. Deleting and recreating a channel
+// does not: that produces a new ID and needs updating here.
 export const LEAD_CHANNELS = {
   164521648134: { name: 'SB | Re Roof', workType: WORK_TYPES.New },
   163119448070: { name: 'SB | Sales Leads & Follow-Up', workType: WORK_TYPES.New },
   163119546374: { name: 'SB | Repairs & Active Leaks', workType: WORK_TYPES.Repair },
+  163119579142: { name: 'SB | Waranty', workType: WORK_TYPES.Warranty },
 };

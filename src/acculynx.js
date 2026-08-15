@@ -59,9 +59,12 @@ export async function findJobForPost(postId) {
  * than repeating on every subsequent run.
  */
 export async function stampPostReference(jobId, postId) {
-  const res = await request(`/jobs/${jobId}/external-references`, {
+  // The job is identified in the body, not the path — posting to
+  // /jobs/{jobId}/external-references returns 404. jobId, source and projectId
+  // are all required.
+  const res = await request(EXTERNAL_REFS_PATH, {
     method: 'POST',
-    body: { source: EXTERNAL_SOURCE, projectId: String(postId) },
+    body: { jobId, source: EXTERNAL_SOURCE, projectId: String(postId) },
   });
 
   if (!res.ok) {

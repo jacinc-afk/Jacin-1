@@ -65,7 +65,13 @@ export async function stampPostReference(jobId, postId) {
   });
 
   if (!res.ok) {
-    throw new Error(`Stamping external reference failed (${res.status}): ${truncate(res.body, 300)}`);
+    // The job already exists at this point, so name it — an unstamped job is
+    // invisible to dedup and will be recreated on the next run unless someone
+    // deletes it or stamps it by hand.
+    throw new Error(
+      `Stamping external reference failed (${res.status}) for job ${jobId}, post ${postId}. ` +
+        `The job EXISTS but is not deduped. ${truncate(res.body, 200)}`
+    );
   }
 }
 

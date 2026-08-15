@@ -22,7 +22,16 @@ async function main() {
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const token = await getAccessToken();
 
-  const stats = { posts: 0, leads: 0, skipped: 0, duplicates: 0, created: 0, failed: 0 };
+  const stats = {
+    posts: 0,
+    leads: 0,
+    skipped: 0,
+    duplicates: 0,
+    created: 0,
+    failed: 0,
+    // Jobs that were created but could not be stamped for dedup.
+    unstamped: [],
+  };
 
   // Intake re-posts the same lead when chasing it — the same customer appears
   // in two posts days apart, same phone and address. External references only
@@ -81,6 +90,17 @@ async function main() {
       `${stats.created} created, ${stats.failed} failed`
   );
 
+  if (stats.unstamped.length > 0) {
+    console.log(`\n${'!'.repeat(70)}`);
+    console.log('JOBS CREATED WITHOUT DEDUP STAMPS — these will duplicate on the');
+    console.log('next run. Delete them in AccuLynx, or fix the stamping and');
+    console.log('re-stamp them, before running again:');
+    for (const item of stats.unstamped) {
+      console.log(`  job ${item.jobId}  ${item.who}  (post ${item.reference})`);
+    }
+    console.log('!'.repeat(70));
+  }
+
   if (!APPLY && stats.leads > stats.skipped) {
     console.log('\nDry run — set SYNC_APPLY=true to create these for real.');
   }
@@ -137,15 +157,17 @@ async function handleLead({ lead, post, channel, reference, stats }) {
     return;
   }
 
+  let jobId = null;
   try {
     const contactId = await createContact(lead);
-    const jobId = await createJob({
+    jobId = await createJob({
       contactId,
       workType: channel.workType,
       address: lead.address,
       leadSourceId: lead.leadSourceId,
       notes,
     });
+
     // Immediately, so an interruption leaves at most one duplicate rather than
     // recreating this lead on every future run.
     await stampPostReference(jobId, reference);
@@ -155,6 +177,13 @@ async function handleLead({ lead, post, channel, reference, stats }) {
   } catch (err) {
     stats.failed += 1;
     console.error(`  FAILED  ${who} — ${err.message}`);
+
+    // A job created but left unstamped is worse than one never created: it is
+    // real in the CRM yet invisible to dedup, so it silently duplicates on the
+    // next run. Count and surface it separately from a clean failure.
+    if (jobId) {
+      stats.unstamped.push({ who, jobId, reference });
+    }
   }
 }
 

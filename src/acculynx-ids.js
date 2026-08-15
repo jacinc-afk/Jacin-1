@@ -54,25 +54,48 @@ export const TRADE_TYPES = {
   'Solar Repair': '33257114-e20b-4f8a-b168-7a589d59eb5f',
 };
 
-// jobPost.leadSource.id — GUID. Partial: these are the sources the intake
-// template's "Lead Source:" line is most likely to name. The account has more,
-// including individual salespeople; run `npm run discover` for the full list.
-export const LEAD_SOURCES = {
-  'Previous Customer': '6907f009-1057-457c-b0c6-5ce0e8b3878b',
-  Referral: '474a64d8-c55a-4607-a5c5-ab88ce90dc26',
-  Website: '0e5411c1-9553-42fa-8ff6-36aaff81cd03',
-  'Google Search': 'a6176ea9-0634-4649-8524-d9203e44efc0',
-  'Google Local Services Ad': 'bef198c1-7079-40b7-8997-47bb43fdbdad',
-  'Live Chat': 'c4710769-c5f0-447d-a261-64f07ee9b88c',
-  Realtor: 'd8c2ac3d-a0c9-49b7-a91f-bbc931244dbc',
-  'Roof Calculator': '2baaba36-91f0-45ff-8d19-cabba1d4882e',
-  'Working in the neighborhood': '3b8cc022-b853-4c69-8640-07553a0c86a8',
-  'Yard Sign': '1dab06f7-b122-40f5-8c9b-9451a1d270e9',
-  Yelp: '58eab576-5307-4df1-b0e8-bd0c6c16cbd2',
-  Truck: 'd646abcf-343f-4a36-ac6b-8154c183900f',
-  'Internet-Other': '6a0b7284-282e-4401-9d9b-5f8fb1eb0871',
-  Other: '5d853662-bcfc-4d4a-ba5e-dd148584b866',
+// jobPost.leadSource.id — GUID, and the one lookup that genuinely differs
+// between the two companies. Everything above (contact types, work types, job
+// categories) came back with identical IDs from both, being AccuLynx system
+// defaults, so a test-company run still exercises the production mapping for
+// them. Lead sources are configured per company, so they need their own set.
+const LEAD_SOURCES_BY_TARGET = {
+  production: {
+    'Previous Customer': '6907f009-1057-457c-b0c6-5ce0e8b3878b',
+    Referral: '474a64d8-c55a-4607-a5c5-ab88ce90dc26',
+    Website: '0e5411c1-9553-42fa-8ff6-36aaff81cd03',
+    'Google Search': 'a6176ea9-0634-4649-8524-d9203e44efc0',
+    'Google Local Services Ad': 'bef198c1-7079-40b7-8997-47bb43fdbdad',
+    'Live Chat': 'c4710769-c5f0-447d-a261-64f07ee9b88c',
+    Realtor: 'd8c2ac3d-a0c9-49b7-a91f-bbc931244dbc',
+    'Roof Calculator': '2baaba36-91f0-45ff-8d19-cabba1d4882e',
+    'Working in the neighborhood': '3b8cc022-b853-4c69-8640-07553a0c86a8',
+    'Yard Sign': '1dab06f7-b122-40f5-8c9b-9451a1d270e9',
+    Yelp: '58eab576-5307-4df1-b0e8-bd0c6c16cbd2',
+    Truck: 'd646abcf-343f-4a36-ac6b-8154c183900f',
+    'Internet-Other': '6a0b7284-282e-4401-9d9b-5f8fb1eb0871',
+    Other: '5d853662-bcfc-4d4a-ba5e-dd148584b866',
+  },
+  test: {
+    'Previous Customer': '6837676b-1e1e-4618-8e96-87ed6def83c7',
+    Referral: '1af00be0-1c41-4fab-817f-3851de35f0e4',
+    Internet: '7447b0a3-bf1e-48a7-a111-20f4f22ca0ea',
+    Canvasser: '8affad74-5de3-4f6e-a869-ade2322a5d59',
+    'Direct Mailings': '2442cb0a-4cec-41c8-82a7-0f38f1ae07ea',
+    'Door hanger': 'cee5eece-17d4-46ad-b57e-c38d9ca173e7',
+    'Door Knocking': '51a08370-cd43-4394-a632-70b1c43f0e19',
+    Newspaper: '421b3fad-9c58-44ef-af43-5efa695386a4',
+    Phonebook: '286374f9-5716-403c-b84b-4efab7366d56',
+    Radio: 'c9621698-9961-4ca5-bdda-0d0a4380ce9a',
+    Telemarketing: '072dd8f6-31c2-413b-a045-afe0265ed7a5',
+    Truck: '81cd8f58-7e30-478a-8505-b17e80cc5584',
+    'Yard Sign': 'dba5a2f4-f502-4472-ad53-030ec7bf1bc7',
+    Other: '2491a574-2d75-4c9b-8f15-1b4644abf4e1',
+  },
 };
+
+export const LEAD_SOURCES =
+  LEAD_SOURCES_BY_TARGET[process.env.ACCULYNX_TARGET] ?? LEAD_SOURCES_BY_TARGET.production;
 
 // Which RingCentral team channel maps to which AccuLynx work type.
 //

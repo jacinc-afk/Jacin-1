@@ -72,6 +72,12 @@ const LOOKUPS = [
     candidates: ['/company-settings/leads/lead-sources'],
   },
   {
+    // Needed to assign reroof leads in rotation — assignment references a
+    // user ID, not a name.
+    label: 'Users          (for lead assignment)',
+    candidates: ['/users?pageSize=100', '/users'],
+  },
+  {
     // Dedup depends on this: each job gets stamped with the RingCentral post
     // that produced it, and the sync asks AccuLynx whether a post has already
     // become a job rather than tracking that itself. A wrong path here means
@@ -198,8 +204,15 @@ function printItems(json) {
   }
   for (const item of items) {
     const id = item?.id ?? '(no id)';
-    const name = item?.name ?? item?.description ?? item?.title ?? '';
-    console.log(`    ${String(id).padEnd(38)} ${name}`);
+    // Users carry first/last rather than a single name field.
+    const name =
+      item?.name ||
+      [item?.firstName, item?.lastName].filter(Boolean).join(' ') ||
+      item?.description ||
+      item?.title ||
+      '';
+    const extra = item?.emailAddress ?? item?.email ?? '';
+    console.log(`    ${String(id).padEnd(38)} ${name}${extra ? `  <${extra}>` : ''}`);
   }
 }
 

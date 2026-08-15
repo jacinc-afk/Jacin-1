@@ -136,7 +136,19 @@ export const WARRANTIES = {
   company: 'SeaBreeze Roofing Warranties',
   keyVar: 'ACCULYNX_KEY_WARRANTIES',
   assignment: { mode: 'fixed', people: ['Jacin Carreiro'] },
-  users: {},
+
+  users: {
+    'Alex Patapis': '84eaa673-6042-4305-8ab2-1c09dcd533b3',
+    'Andrei Smith': '108cb50c-722d-499f-b5e2-5a4d0ceeb29f',
+    'Aubrie Parker': '1f10cbfd-69c6-41eb-ae30-6a80f6e4a60f',
+    'Francis Ferrer': 'aeccab67-0b27-4dbc-90b7-f8ce9992fe8f',
+    'Jacin Carreiro': 'd81cc87d-a5e0-4d24-a32f-42b57760eb50',
+    'Noah Damiani': '9e453fca-f05a-4375-b564-2880b2d3e8e9',
+  },
+
+  // Not yet captured. Warranty leads go to Jacin regardless of source, and
+  // leadSource is optional on a job, so an empty map leaves the field unset
+  // rather than blocking anything — the raw text still reaches the notes.
   leadSources: {},
 };
 

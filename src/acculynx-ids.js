@@ -76,6 +76,10 @@ export const LEAD_SOURCES = {
 
 // Which RingCentral team channel maps to which AccuLynx work type.
 //
+// Keyed by chat ID rather than name, since that is what the API returns and
+// renaming a channel in RingCentral would otherwise silently stop its leads
+// from syncing. IDs read from the live account by src/discover-ringcentral.js.
+//
 // The channels are named for reroof and service/repair, but this account has
 // no "Reroof" work type and keeps Service and Repair as separate ones, so the
 // names do not map across directly. These pairings were chosen deliberately:
@@ -84,8 +88,8 @@ export const LEAD_SOURCES = {
 //
 // Only posts containing "Customer Name:" are treated as leads — all three
 // channels also carry ordinary conversation.
-export const CHANNEL_WORK_TYPE = {
-  'SB | Re Roof': WORK_TYPES.New,
-  'SB | Sales Leads & Follow-Up': WORK_TYPES.New,
-  'SB | Repairs & Active Leaks': WORK_TYPES.Repair,
+export const LEAD_CHANNELS = {
+  164521648134: { name: 'SB | Re Roof', workType: WORK_TYPES.New },
+  163119448070: { name: 'SB | Sales Leads & Follow-Up', workType: WORK_TYPES.New },
+  163119546374: { name: 'SB | Repairs & Active Leaks', workType: WORK_TYPES.Repair },
 };

@@ -13,6 +13,11 @@ on:
         description: 'How many days of chat history to read'
         type: string
         default: '7'
+      target:
+        description: 'Which AccuLynx company to write to'
+        type: choice
+        options: [test, production]
+        default: test
 
 permissions:
   contents: read
@@ -39,8 +44,10 @@ jobs:
         env:
           SYNC_APPLY: ${{ inputs.apply }}
           SYNC_LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+          ACCULYNX_TARGET: ${{ inputs.target }}
           RC_CLIENT_ID: ${{ secrets.RC_CLIENT_ID }}
           RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}
           RC_JWT: ${{ secrets.RC_JWT }}
           RC_SERVER_URL: ${{ secrets.RC_SERVER_URL }}
           ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}

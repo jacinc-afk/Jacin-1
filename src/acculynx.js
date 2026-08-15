@@ -13,6 +13,16 @@ import { CONTACT_TYPES, JOB_CATEGORIES } from './acculynx-ids.js';
 
 const BASE = process.env.ACCULYNX_API_BASE || 'https://api.acculynx.com/api/v2';
 
+// An API key is bound to one AccuLynx company — the docs describe lookups as
+// returning data for "the current location", and job updates as validating
+// against "the company associated with the API key". So testing against a
+// separate company means a separate key, and separate IDs behind it.
+//
+// Kept as two secrets rather than one that gets swapped: re-pasting a
+// credential to switch targets invites pasting the wrong one back, and the
+// wrong one here writes into the live CRM.
+const TARGET = process.env.ACCULYNX_TARGET || 'production';
+
 // Identifies rows this sync created, so a post can be traced to its job and
 // vice versa.
 export const EXTERNAL_SOURCE = 'ringcentral-team-messaging';
@@ -116,7 +126,7 @@ export async function createJob({ contactId, workType, address, leadSourceId, no
  * customer nobody calls back.
  */
 async function request(path, { method = 'GET', body, attempt = 0 } = {}) {
-  const apiKey = requireEnv('ACCULYNX_API_KEY');
+  const apiKey = requireEnv(TARGET === 'test' ? 'ACCULYNX_API_KEY_TEST' : 'ACCULYNX_API_KEY');
 
   const res = await fetch(`${BASE}${path}`, {
     method,

@@ -5,7 +5,13 @@ name: Discover AccuLynx IDs
 # them. GET requests only — this workflow creates and changes nothing in
 # AccuLynx.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which AccuLynx company to read IDs from'
+        type: choice
+        options: [test, production]
+        default: test
 
 permissions:
   contents: read
@@ -23,4 +29,6 @@ jobs:
       - name: Read AccuLynx IDs
         run: npm run discover
         env:
+          ACCULYNX_TARGET: ${{ inputs.target }}
           ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}

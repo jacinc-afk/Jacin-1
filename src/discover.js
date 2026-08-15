@@ -89,15 +89,21 @@ const LOOKUPS = [
 ];
 
 async function main() {
-  const apiKey = process.env.ACCULYNX_API_KEY;
+  // An API key is bound to one AccuLynx company, so the test company has its
+  // own key and its own set of IDs behind it.
+  const target = process.env.ACCULYNX_TARGET || 'production';
+  const keyVar = target === 'test' ? 'ACCULYNX_API_KEY_TEST' : 'ACCULYNX_API_KEY';
+  const apiKey = process.env[keyVar];
+
   if (!apiKey) {
-    console.error('Missing ACCULYNX_API_KEY. Get one at https://my.acculynx.com/apikeys');
+    console.error(`Missing ${keyVar}. Get one at https://my.acculynx.com/apikeys`);
     process.exit(1);
   }
 
   // Report the shape of the key without revealing it. A key that is far
   // shorter or longer than expected, or that has picked up whitespace or
   // quotes from a copy-paste, shows up here rather than as a mystery 404.
+  console.log(`target: ${target} (${keyVar})`);
   console.log(`base: ${BASE}`);
   console.log(`key:  length ${apiKey.length}, prefix "${apiKey.slice(0, 5)}...", ` +
     `${/\s/.test(apiKey) ? 'CONTAINS WHITESPACE' : 'no whitespace'}, ` +

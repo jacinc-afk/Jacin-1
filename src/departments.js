@@ -13,10 +13,20 @@
 // Work types, job categories and contact types are AccuLynx system defaults
 // and came back identical across companies, so those stay in acculynx-ids.js.
 
+// Assignment sets the job's **Company Representative** — the per-job field,
+// not the "Company Administrator" permission level shown on the team screen.
+//
+// Rules name people rather than IDs on purpose: the same name resolves to a
+// different ID in each company, so the rule stays correct wherever it runs and
+// the lookup happens against the right company.
 export const REROOF = {
   key: 'reroof',
   company: 'SeaBreeze Roofing REROOF Department',
   keyVar: 'ACCULYNX_KEY_REROOF',
+
+  // Round-robin. Skipped when the intake names a salesperson, or the customer
+  // has prior jobs under a different rep — those get flagged instead.
+  assignment: { mode: 'rotate', people: ['Jacin Carreiro', 'Francis Ferrer', 'Alex Patapis'] },
 
   users: {
     'Alex Patapis': '570e29fd-a208-4e9e-9c30-873fc2ff95f2',
@@ -84,6 +94,7 @@ export const SERVICE = {
   key: 'service',
   company: 'SeaBreeze Roofing Service Department',
   keyVar: 'ACCULYNX_KEY_SERVICE',
+  assignment: { mode: 'fixed', people: ['Alex Patapis'] },
   users: {},
   leadSources: {},
 };
@@ -92,14 +103,18 @@ export const WARRANTIES = {
   key: 'warranties',
   company: 'SeaBreeze Roofing Warranties',
   keyVar: 'ACCULYNX_KEY_WARRANTIES',
+  assignment: { mode: 'fixed', people: ['Jacin Carreiro'] },
   users: {},
   leadSources: {},
 };
 
+// No channel feeds this one and it is not being searched yet, so it has no key
+// and stays out of SEARCH_DEPARTMENTS. Listed for completeness.
 export const NEW_CONSTRUCTION = {
   key: 'newconstruction',
   company: 'SeaBreeze Roofing New Conctruction & Remodels',
   keyVar: 'ACCULYNX_KEY_NEWCONSTRUCTION',
+  assignment: null,
   users: {},
   leadSources: {},
 };
@@ -123,4 +138,4 @@ export const CHANNEL_DEPARTMENT = {
 // Every department is searched for prior work on a customer before a lead is
 // created — a service customer returning for a reroof, or a second quote to
 // the same household, only shows up by looking across all of them.
-export const SEARCH_DEPARTMENTS = ['reroof', 'service', 'warranties', 'newconstruction'];
+export const SEARCH_DEPARTMENTS = ['reroof', 'service', 'warranties'];

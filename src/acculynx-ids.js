@@ -97,28 +97,10 @@ const LEAD_SOURCES_BY_TARGET = {
 export const LEAD_SOURCES =
   LEAD_SOURCES_BY_TARGET[process.env.ACCULYNX_TARGET] ?? LEAD_SOURCES_BY_TARGET.production;
 
-// AccuLynx users, for assigning a lead's company administrator.
-export const USERS = {
-  'Alex Patapis': '040abed8-78e8-49ff-942f-40c99f36055b',
-  'Andrei Smith': 'a79ad21e-4c29-462c-ae72-bc79b417ea2e',
-  'Aubrie Parker': '43c6df95-ad18-445d-9667-c124c7acde9f',
-  'Francis Ferrer': '2141584c-179b-486c-ac9d-d0e39ac9a96f',
-  'Jacin Carreiro': 'c7e7553b-49ea-4499-826a-c2765fda6de3',
-  'Noah Damiani': '370525c2-e310-4889-8271-9e4d1b411ee8',
-};
-
-// Reroof leads rotate between three people; repair and warranty each go to
-// one. The rotation applies only where there is a rotation to apply — a lead
-// whose intake names a specific salesperson, or whose customer has prior jobs
-// under a different administrator, is flagged rather than assigned.
-export const REROOF_ROTATION = [
-  USERS['Jacin Carreiro'],
-  USERS['Francis Ferrer'],
-  USERS['Alex Patapis'],
-];
-
-export const REPAIR_OWNER = USERS['Alex Patapis'];
-export const WARRANTY_OWNER = USERS['Jacin Carreiro'];
+// User IDs are NOT here. They are per-company, and the same person has a
+// different ID in each — see src/departments.js. IDs recorded here previously
+// came from whichever company the old production key reached, and using them
+// against another department would attach the wrong person.
 
 // Which RingCentral team channel maps to which AccuLynx work type.
 //

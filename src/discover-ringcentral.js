@@ -68,6 +68,24 @@ async function main() {
     console.log(`  ${String(team.id).padEnd(20)} ${team.name ?? '(unnamed)'}`);
   }
 
+  // Flags for leads needing a decision go to a private thread rather than the
+  // working channel. Since the JWT is minted by that same person, their
+  // Personal chat — RingCentral's note-to-self thread — is private to them,
+  // and is also a safe place to verify posting works without putting a test
+  // message in front of a whole team.
+  console.log(`\n${'='.repeat(70)}`);
+  console.log('PRIVATE CHATS (candidates for flag notifications)');
+  console.log('='.repeat(70));
+  const privateChats = chats.filter((c) => c.type === 'Personal' || c.type === 'Direct');
+  if (privateChats.length === 0) {
+    console.log('  none found — chat types seen: ' +
+      [...new Set(chats.map((c) => c.type))].join(', '));
+  }
+  for (const chat of privateChats) {
+    const members = (chat.members ?? []).length;
+    console.log(`  ${String(chat.id).padEnd(20)} ${String(chat.type).padEnd(10)} ${members} member(s)`);
+  }
+
   console.log(`\n${'='.repeat(70)}`);
   console.log('LEAD CHANNELS');
   console.log('='.repeat(70));

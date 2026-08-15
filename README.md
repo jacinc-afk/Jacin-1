@@ -3,9 +3,10 @@
 Takes the lead intake forms that get posted into RingCentral team chat and
 creates matching leads in AccuLynx.
 
-**Status: not built yet.** This repo currently contains a read-only discovery
-script and verified notes. The sync itself is blocked on reading the account's
-own AccuLynx IDs — see [Next step](#next-step).
+**Status: working, tested against a separate AccuLynx test company, not yet
+run against production.** The full chain — read chat, parse intake, create the
+contact, create the job, stamp it for deduplication, skip it on the next run —
+has been exercised end to end with live credentials.
 
 ## Where the leads come from
 
@@ -68,37 +69,54 @@ Checked against RingCentral's and AccuLynx's own published specs, not assumed:
 - Writes are rate limited (`company-write:hourly`, `company-write:daily`) and
   return 429 with `Retry-After`.
 
-## Next step
+## Running it
 
-Creating a job means referencing IDs that are specific to this AccuLynx
-account. Those have to be read out of the account before the sync can be
-written against them.
+From the Actions tab, **Sync leads**:
 
-```bash
-ACCULYNX_API_KEY=xxxxx npm run discover
-```
+| Input | Meaning |
+| --- | --- |
+| `apply` | `false` (default) prints what would be created and writes nothing |
+| `lookback_days` | how far back to read chat |
+| `target` | `test` (default) or `production` — which AccuLynx company to write to |
 
-Or, to avoid handling the key locally, run the **Discover AccuLynx IDs**
-workflow from the Actions tab, which reads it from the `ACCULYNX_API_KEY`
-repository secret. Either way the script only issues GET requests and changes
-nothing.
+Both defaults are the safe ones. Writing to production takes two deliberate
+changes, not one.
 
-Its output supplies the work type IDs for Reroof and Service/Repair, a lead
-source ID, and the contact type IDs required by `POST /contacts`.
+An API key is bound to a single AccuLynx company, so the test company has its
+own key in `ACCULYNX_API_KEY_TEST`. Contact types, work types and job
+categories came back identical from both companies — they are AccuLynx system
+defaults — so a test run exercises the production mapping for everything
+except lead sources, which are configured per company and held separately.
 
-The lookup paths in `src/discover.js` are inferred from operationIds in
-AccuLynx's published OpenAPI index and are not confirmed, so the script tries
-each candidate and reports a clean 404 rather than failing silently.
+## Deduplication
 
-## Then
+Each job is stamped with the RingCentral post that produced it, via
+`POST /jobs/external-references`, and every run asks AccuLynx whether a post
+already became a job before creating anything. The CRM holds the leads, so it
+is the honest place to ask — a tracker kept in this repo could drift from
+reality, and drift means duplicate customer records.
 
-1. Map the discovered IDs to the three channels.
-2. Build the sync: read posts → parse the intake form → `POST /contacts` →
-   `POST /jobs` → stamp the RingCentral post ID onto the job as an external
-   reference so a post can never produce two leads.
-3. Decide polling versus webhooks. Polling runs free on a schedule in Actions;
-   webhooks are near-instant but need somewhere to receive them, which a
-   scheduled Action cannot provide.
+Two failure modes are handled deliberately:
+
+- **A failed lookup skips the lead** rather than creating it. Failing open
+  would duplicate a lead already in the CRM.
+- **A job created but not stamped** is reported loudly with its ID, because it
+  is real in AccuLynx yet invisible to dedup and would be recreated on the
+  next run.
+
+Separately, intake re-posts a lead while chasing it, so the same customer can
+appear in several posts days apart. External references dedup by post, not by
+person, so leads are also matched on phone plus surname within a run.
+
+## Still to do
+
+- Run against production.
+- Decide polling versus webhooks. Polling runs free on a schedule; webhooks
+  are near-instant but need somewhere to receive them, which a scheduled
+  Action cannot provide. RingCentral's per-channel Zapier add-in could bridge
+  that.
+- Optionally assign each lead an owner by department — leads currently land in
+  Lead (Unassigned) regardless of which channel they came from.
 
 ## Known gaps
 

@@ -22,7 +22,13 @@ async function main() {
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const token = await getAccessToken();
 
-  const stats = { posts: 0, leads: 0, skipped: 0, created: 0, failed: 0 };
+  const stats = { posts: 0, leads: 0, skipped: 0, duplicates: 0, created: 0, failed: 0 };
+
+  // Intake re-posts the same lead when chasing it — the same customer appears
+  // in two posts days apart, same phone and address. External references only
+  // dedup by post, so without this each re-post becomes another customer
+  // record for someone to merge by hand later.
+  const seen = new Map();
 
   for (const [chatId, channel] of Object.entries(LEAD_CHANNELS)) {
     console.log('='.repeat(70));
@@ -53,6 +59,16 @@ async function main() {
         // A single post can carry several intake forms, so the reference has
         // to identify the lead, not just the post.
         const reference = leads.length > 1 ? `${post.id}#${index}` : String(post.id);
+
+        const key = identityOf(lead);
+        if (key && seen.has(key)) {
+          stats.duplicates += 1;
+          const who = nameOf(lead);
+          console.log(`  DUPE    ${who} — same person already handled from ${seen.get(key)}`);
+          continue;
+        }
+        if (key) seen.set(key, post.creationTime);
+
         await handleLead({ lead, post, channel, reference, stats });
       }
     }
@@ -61,7 +77,8 @@ async function main() {
   console.log(`\n${'='.repeat(70)}`);
   console.log(
     `${stats.posts} post(s) read, ${stats.leads} lead(s) found, ` +
-      `${stats.skipped} already in AccuLynx, ${stats.created} created, ${stats.failed} failed`
+      `${stats.duplicates} re-posted, ${stats.skipped} already in AccuLynx, ` +
+      `${stats.created} created, ${stats.failed} failed`
   );
 
   if (!APPLY && stats.leads > stats.skipped) {
@@ -70,8 +87,23 @@ async function main() {
   if (stats.failed > 0) process.exitCode = 1;
 }
 
+/**
+ * Identity for spotting the same lead re-posted. Phone plus surname, since
+ * phone alone would collide for a household and the name alone is too loose.
+ * Leads without a usable phone are never treated as duplicates — better a
+ * duplicate than dropping a distinct customer.
+ */
+function identityOf(lead) {
+  if (!lead.phone) return null;
+  return `${lead.phone}|${(lead.lastName || '').trim().toLowerCase()}`;
+}
+
+function nameOf(lead) {
+  return [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)';
+}
+
 async function handleLead({ lead, post, channel, reference, stats }) {
-  const who = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)';
+  const who = nameOf(lead);
   const notes = buildNotes(lead, { channel: channel.name, postedAt: post.creationTime });
 
   try {
@@ -92,9 +124,15 @@ async function handleLead({ lead, post, channel, reference, stats }) {
     console.log(`  WOULD CREATE  ${who}`);
     console.log(`      phone     ${lead.phone ?? '(none usable)'}`);
     console.log(`      email     ${lead.email ?? '(none)'}`);
-    console.log(`      address   ${lead.address ? formatAddress(lead.address) : '(unparsed — see notes)'}`);
+    // Show the raw text behind anything that didn't convert, so a dry run
+    // explains *why* rather than just reporting that it failed.
+    console.log(
+      `      address   ${lead.address ? formatAddress(lead.address) : `UNPARSED <- ${lead.rawAddress ?? '(field absent)'}`}`
+    );
     console.log(`      workType  ${channel.workType}`);
-    console.log(`      source    ${lead.leadSourceId ?? '(unmatched — see notes)'}`);
+    console.log(
+      `      source    ${lead.leadSourceId ?? `UNMATCHED <- ${lead.rawLeadSource ?? '(field absent)'}`}`
+    );
     console.log(`      notes     ${notes.split('\n')[0]}...`);
     return;
   }

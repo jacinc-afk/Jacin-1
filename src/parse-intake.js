@@ -47,7 +47,7 @@ const LABELS = new Map([
 export function parseIntakePosts(text) {
   if (!text) return [];
 
-  const lines = text.split(/\r?\n/);
+  const lines = stripMarkdownLinks(text).split(/\r?\n/);
   const blocks = [];
   let current = null;
 
@@ -64,11 +64,22 @@ export function parseIntakePosts(text) {
   return blocks.map((block) => parseLead(block.join('\n')));
 }
 
+/**
+ * RingCentral turns email addresses and phone numbers in posts into markdown
+ * autolinks, so the text arrives as
+ * `[jade@outlook.com](mailto:jade@outlook.com)` rather than the address alone.
+ * Sent through as-is, AccuLynx rejects it — the email field is format-checked.
+ * Unwrapping to the label recovers the original text for every field at once.
+ */
+export function stripMarkdownLinks(text) {
+  return text.replace(/\[([^\]]+)\]\((?:mailto:|tel:)?[^)]*\)/g, '$1');
+}
+
 export function parseLead(text) {
   const fields = {};
   let lastKey = null;
 
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of stripMarkdownLinks(text).split(/\r?\n/)) {
     const label = labelOf(line);
     if (label && LABELS.has(label)) {
       lastKey = LABELS.get(label);

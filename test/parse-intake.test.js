@@ -160,6 +160,27 @@ test('notes carry over anything that could not be sent structurally', () => {
   assert.doesNotMatch(notes, /not a valid 10-digit number/);
 });
 
+test('unwraps the markdown autolinks RingCentral adds', () => {
+  // RingCentral rewrites addresses and numbers in posts as markdown links, so
+  // this is how the text actually arrives — sent through raw, AccuLynx rejects
+  // the email as malformed.
+  const lead = parseLead(`Customer Name: Jade Friedensohn
+Phone: [917 301 4721](tel:9173014721)
+Email: [jadefriedensohn@outlook.com](mailto:jadefriedensohn@outlook.com)
+Property Address: 8239 Tailshot Ct, Lake Worth, FL 33467`);
+
+  assert.equal(lead.email, 'jadefriedensohn@outlook.com');
+  assert.equal(lead.phone, '9173014721');
+  assert.equal(lead.address.city, 'Lake Worth');
+});
+
+test('leaves ordinary text with brackets or parens alone', () => {
+  const lead = parseLead(`Customer Name: Ann Lee
+Notes: call after 5 (she works days) [urgent]`);
+
+  assert.equal(lead.notes, 'call after 5 (she works days) [urgent]');
+});
+
 test('notes stay within the 1000 character limit', () => {
   const lead = parseLead(`Customer Name: Long Winded
 Notes: ${'x'.repeat(2000)}`);

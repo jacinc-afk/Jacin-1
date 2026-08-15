@@ -183,3 +183,8 @@ export const CHANNEL_DEPARTMENT = {
 // created — a service customer returning for a reroof, or a second quote to
 // the same household, only shows up by looking across all of them.
 export const SEARCH_DEPARTMENTS = ['reroof', 'service', 'warranties'];
+
+// Leads that need a human decision are reported here rather than in the
+// working channel. This is the Personal chat — RingCentral's note-to-self
+// thread, one member — so it is private to Jacin, whose JWT the sync runs as.
+export const FLAG_CHAT_ID = '1586419228674';

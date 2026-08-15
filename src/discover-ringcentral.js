@@ -17,13 +17,17 @@ import { getAccessToken } from './ringcentral.js';
 
 const RC_SERVER = process.env.RC_SERVER_URL || 'https://platform.ringcentral.com';
 
-// The channels lead intake is posted into. Matched case-insensitively, since
-// the display name may not be typed exactly as it appears here.
-const WANTED = [
-  'SB | Re Roof',
-  'SB | Sales Leads & Follow-Up',
-  'SB | Repairs & Active Leaks',
-];
+import { CHANNEL_DEPARTMENT } from './departments.js';
+
+// Checked by ID, not by name. Channels get renamed — SB | Repairs & Active
+// Leaks was, and a name-based check reported it missing when it was simply
+// relabelled. The sync matches on ID for the same reason, so this check should
+// agree with what the sync actually does.
+const WANTED = Object.entries(CHANNEL_DEPARTMENT).map(([id, channel]) => ({
+  id,
+  knownAs: channel.name,
+  department: channel.department,
+}));
 
 // /team-messaging/v1 is the current namespace; /restapi/v1.0/glip is the older
 // one it replaced. Accounts vary in which they answer on.
@@ -92,14 +96,19 @@ async function main() {
 
   let missing = 0;
   for (const wanted of WANTED) {
-    const match = chats.find(
-      (c) => (c.name ?? '').trim().toLowerCase() === wanted.toLowerCase()
-    );
+    const match = chats.find((c) => String(c.id) === String(wanted.id));
     if (match) {
-      console.log(`  FOUND    ${String(match.id).padEnd(20)} ${wanted}`);
+      // Surface a rename rather than passing over it — the sync keeps working,
+      // but the label recorded in config goes stale and shows up in job notes.
+      const renamed = (match.name ?? '').trim() !== wanted.knownAs;
+      const note = renamed ? `  (RENAMED from "${wanted.knownAs}")` : '';
+      console.log(
+        `  FOUND    ${String(match.id).padEnd(20)} ${match.name ?? '(unnamed)'} ` +
+          `-> ${wanted.department}${note}`
+      );
     } else {
       missing += 1;
-      console.log(`  MISSING                       ${wanted}`);
+      console.log(`  MISSING  ${String(wanted.id).padEnd(20)} ${wanted.knownAs}`);
     }
   }
 

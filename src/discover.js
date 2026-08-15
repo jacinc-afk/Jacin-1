@@ -20,6 +20,18 @@
 
 const BASE = process.env.ACCULYNX_API_BASE || 'https://api.acculynx.com/api/v2';
 
+// Each department is a separate AccuLynx company, and an API key is bound to
+// one company, so each needs its own key. IDs — lead sources especially — are
+// scoped to the company behind the key.
+const KEY_VARS = {
+  reroof: 'ACCULYNX_KEY_REROOF',
+  service: 'ACCULYNX_KEY_SERVICE',
+  warranties: 'ACCULYNX_KEY_WARRANTIES',
+  newconstruction: 'ACCULYNX_KEY_NEWCONSTRUCTION',
+  test: 'ACCULYNX_API_KEY_TEST',
+  production: 'ACCULYNX_API_KEY',
+};
+
 // Paths quoted directly in AccuLynx's published documentation, not inferred.
 // These are the control: they are expected to work, so a failure here is
 // diagnostic rather than just a miss.
@@ -28,6 +40,10 @@ const CONTROLS = [
   { path: '/contacts?pageSize=1', note: 'documented as Get Contacts' },
   { path: '/ping', note: 'documented as Check if the API Server Is Responsive' },
 ];
+
+// Which company does this key actually reach? With five companies and a key
+// per company, inferring it from the user list is guesswork — better to ask.
+const IDENTITY_PATHS = ['/company-settings', '/companysettings', '/company'];
 
 // The published path for Get Contact Types is /contacts/contact-types, so
 // multi-word segments are kebab-cased — the earlier round of guesses ran them
@@ -98,7 +114,7 @@ async function main() {
   // An API key is bound to one AccuLynx company, so the test company has its
   // own key and its own set of IDs behind it.
   const target = process.env.ACCULYNX_TARGET || 'production';
-  const keyVar = target === 'test' ? 'ACCULYNX_API_KEY_TEST' : 'ACCULYNX_API_KEY';
+  const keyVar = KEY_VARS[target] ?? 'ACCULYNX_API_KEY';
   const apiKey = process.env[keyVar];
 
   if (!apiKey) {
@@ -116,6 +132,18 @@ async function main() {
     `${/^["']|["']$/.test(apiKey) ? 'WRAPPED IN QUOTES' : 'unquoted'}\n`);
 
   console.log('#'.repeat(70));
+  console.log('WHICH COMPANY DOES THIS KEY REACH?');
+  console.log('#'.repeat(70));
+  for (const path of IDENTITY_PATHS) {
+    const res = await get(path, apiKey);
+    console.log(`  ${path} -> ${res.status}`);
+    if (res.status === 200) {
+      console.log(`    ${truncate(JSON.stringify(res.json), 600)}`);
+      break;
+    }
+  }
+
+  console.log(`\n${'#'.repeat(70)}`);
   console.log('CONTROL - documented paths, expected to work');
   console.log('#'.repeat(70));
 

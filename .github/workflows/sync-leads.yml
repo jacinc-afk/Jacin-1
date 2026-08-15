@@ -1,0 +1,46 @@
+name: Sync leads
+
+# Defaults to a dry run. Creating records in a live CRM is not something to do
+# by accident, so writing requires explicitly setting apply to true.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Create records in AccuLynx (false = dry run, prints only)'
+        type: boolean
+        default: false
+      lookback_days:
+        description: 'How many days of chat history to read'
+        type: string
+        default: '7'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two runs at once could both see a lead as new and create it twice.
+  group: sync-leads
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm test
+
+      - name: Sync
+        run: node src/sync.js
+        env:
+          SYNC_APPLY: ${{ inputs.apply }}
+          SYNC_LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+          RC_CLIENT_ID: ${{ secrets.RC_CLIENT_ID }}
+          RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}
+          RC_JWT: ${{ secrets.RC_JWT }}
+          RC_SERVER_URL: ${{ secrets.RC_SERVER_URL }}
+          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}

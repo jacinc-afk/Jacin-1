@@ -233,23 +233,29 @@ export function createClient({ apiKey, label = 'acculynx' }) {
   }
 
   /**
-   * Assign the job. OPTIONS on this route answered `Allow: GET, POST`, so POST
-   * is the method — not a guess, and not a PUT.
+   * Assign the job. Both the method and the body are confirmed against a live
+   * job in the Testing company, not inferred:
    *
-   * The body is the one thing still inferred: it mirrors the shape the GET
-   * returns, `{ user: { id } }`, which is also how every other reference on
-   * this API is written (contact, leadSource, workType, jobCategory are all
-   * `{ id }`). Verified against the Testing company before it is pointed at a
-   * live one.
+   *   POST /jobs/{id}/representatives/company   { "id": "<userGuid>" }
+   *
+   * The obvious reading was wrong. The GET returns the user nested —
+   * { id, type, user: { id } } — and every other reference on this API is
+   * written as a nested { id }, so `{ user: { id } }` looked right. It answers
+   *
+   *   400  "CompanyUserId: Must be a valid Non Empty Guid"
+   *
+   * as does { userId }. The flat { id } is the one that works, where `id` is
+   * the USER's GUID and not the representative record's. Confirmed by reading
+   * the representative back afterwards, since a 2xx alone only proves the
+   * request was accepted, not that anything changed.
    *
    * The user GUID must come from the same company as the key. The same person
-   * has a different ID in each, and sending another company's would either be
-   * rejected or, worse, match somebody else.
+   * has a different ID in each, so use resolveUserId rather than a table.
    */
   async function setCompanyRepresentative(jobId, userId) {
     const res = await request(`/jobs/${jobId}/representatives/company`, {
       method: 'POST',
-      body: { user: { id: userId } },
+      body: { id: userId },
     });
 
     if (!res.ok) {

@@ -1,0 +1,26 @@
+name: Company map
+
+# Which AccuLynx company does each key actually reach? Read-only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Map keys to companies
+        run: node src/company-map.js
+        env:
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
+          ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
+          ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}
+          ACCULYNX_KEY_WARRANTIES: ${{ secrets.ACCULYNX_KEY_WARRANTIES }}

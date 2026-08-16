@@ -194,6 +194,32 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     return res.json?.items ?? [];
   }
 
+  /**
+   * Who the job is assigned to. This is not on the job payload — GET /jobs/{id}
+   * returns _link, contacts, createdDate, currentMilestone, geoLocation, id,
+   * jobCategory, jobName, jobNumber, leadDeadReason, leadSource,
+   * locationAddress, milestoneDate, modifiedDate, priority, tradeTypes and
+   * workType, and nothing about people. The representative is its own
+   * sub-resource, confirmed live:
+   *
+   *   GET /jobs/{id}/representatives/company
+   *     -> { id, type: "CompanyRepresentative", user: { id, _link }, _link }
+   *
+   * Returns the user's GUID, or null when the job has no representative — an
+   * unassigned lead is exactly that, and it is not an error.
+   */
+  async function getCompanyRepresentative(jobId) {
+    const res = await request(`/jobs/${jobId}/representatives/company`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(
+        `[${label}] Representative lookup failed (${res.status}) for ${jobId}: ` +
+          `${truncate(res.body, 200)}`
+      );
+    }
+    return res.json?.user?.id ?? null;
+  }
+
   async function getJob(jobId) {
     const res = await request(`/jobs/${jobId}`);
     if (res.status === 404) return null;
@@ -264,6 +290,7 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     searchContacts,
     getContactJobs,
     getJob,
+    getCompanyRepresentative,
     createContact,
     createJob,
   };

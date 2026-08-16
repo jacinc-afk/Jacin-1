@@ -147,7 +147,14 @@ async function searchDepartment({ client, department, terms, lead, log }) {
       if (!job?.id) continue;
       try {
         const full = await client.getJob(job.id);
-        if (full) details.push(summariseJob(full));
+        if (!full) continue;
+        const summary = summariseJob(full);
+        // Who owns this job is the whole point of looking at it — a returning
+        // customer whose last job was Francis's should not be handed to Alex
+        // by rotation. It costs one more GET because the job payload does not
+        // carry it.
+        summary.representative = await representativeName(client, department, job.id, log);
+        details.push(summary);
       } catch (err) {
         log(`      ${department}: job ${job.id} failed — ${err.message}`);
       }
@@ -235,32 +242,56 @@ export function score(contact, lead) {
 }
 
 /**
- * The job schema is not one I have seen in full, and guessing field names is
- * how this project has gone wrong before. So take the first key that exists
- * from each set of plausible ones, and keep the raw keys around: the first
- * real run prints them, and the list can be narrowed to what AccuLynx
- * actually returns.
+ * Field names confirmed from a live GET /jobs/{id}, not guessed. The payload
+ * carries exactly:
+ *
+ *   _link, contacts, createdDate, currentMilestone, geoLocation, id,
+ *   jobCategory, jobName, jobNumber, leadDeadReason, leadSource,
+ *   locationAddress, milestoneDate, modifiedDate, priority, tradeTypes,
+ *   workType
+ *
+ * Note what is absent: nothing about people. The representative is a separate
+ * resource and is filled in by the caller — see attachRepresentative.
  */
 export function summariseJob(job) {
   return {
     id: job.id ?? null,
-    representative: nameOf(
-      pick(job, ['companyRepresentative', 'representative', 'salesRepresentative', 'salesRep'])
-    ),
-    milestone: nameOf(pick(job, ['milestone', 'jobStatus', 'status'])),
-    workType: nameOf(pick(job, ['workType', 'jobType'])),
-    createdDate: pick(job, ['createdDate', 'creationDate', 'dateCreated']) ?? null,
-    address: formatAddress(pick(job, ['locationAddress', 'jobAddress', 'address'])),
-    // Kept so the first run can report what the payload really contains.
+    jobNumber: job.jobNumber ?? null,
+    representative: null,
+    milestone: nameOf(job.currentMilestone),
+    workType: nameOf(job.workType),
+    createdDate: job.createdDate ?? null,
+    address: formatAddress(job.locationAddress),
+    // Kept so an unexpected payload shows up as a changed field list rather
+    // than as silently empty output.
     keys: Object.keys(job),
   };
 }
 
-function pick(object, keys) {
-  for (const key of keys) {
-    if (object && object[key] != null) return object[key];
+/**
+ * The representative comes back as a user GUID, and GUIDs are per-company —
+ * the same person is a different ID in each. So it is resolved against that
+ * department's own user map rather than looked up globally.
+ *
+ * An unresolved GUID is reported as-is rather than dropped: it means someone
+ * was added in AccuLynx and departments.js has not caught up, and a visible
+ * GUID prompts that fix where a silent null would not.
+ */
+async function representativeName(client, department, jobId, log) {
+  let userId;
+  try {
+    userId = await client.getCompanyRepresentative(jobId);
+  } catch (err) {
+    log(`      ${department}: representative for job ${jobId} failed — ${err.message}`);
+    return null;
   }
-  return null;
+  if (!userId) return null;
+
+  const users = DEPARTMENTS[department]?.users ?? {};
+  for (const [name, id] of Object.entries(users)) {
+    if (id === userId) return name;
+  }
+  return `unknown user ${userId}`;
 }
 
 function nameOf(value) {

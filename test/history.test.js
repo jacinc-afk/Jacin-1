@@ -112,20 +112,28 @@ test('surname is searched first, and the first name only when there is no surnam
   assert.deepEqual(searchTerms({}), []);
 });
 
-// The job payload's field names are not known, so the summary reads several
-// plausible ones. It must not invent a representative that isn't there.
-test('a job summary reports nothing rather than guessing', () => {
+// Field names taken from a live GET /jobs/{id}. The representative is
+// deliberately null here — it is not on the job payload at all and is filled
+// in from /jobs/{id}/representatives/company by the caller.
+test('a job summary reads the fields the payload actually has', () => {
+  const summary = summariseJob({
+    id: 'e591bf22-9828-4144-bca8-42cbb8c6e2c0',
+    jobNumber: '1042',
+    currentMilestone: { name: 'Lead (Unassigned)' },
+    workType: { name: 'Repair' },
+    createdDate: '2024-03-01T14:00:00Z',
+    locationAddress: { street1: '123 Main St', city: 'Boca Raton', state: 'FL', zipCode: '33432' },
+  });
+  assert.equal(summary.jobNumber, '1042');
+  assert.equal(summary.milestone, 'Lead (Unassigned)');
+  assert.equal(summary.workType, 'Repair');
+  assert.equal(summary.address, '123 Main St, Boca Raton, FL 33432');
+  assert.equal(summary.representative, null);
+});
+
+test('a job summary of an unexpected payload reports nothing rather than guessing', () => {
   const summary = summariseJob({ id: 'abc', someUnknownField: 1 });
   assert.equal(summary.representative, null);
   assert.equal(summary.milestone, null);
   assert.deepEqual(summary.keys, ['id', 'someUnknownField']);
-});
-
-test('a job summary reads a representative from any of its likely field names', () => {
-  assert.equal(
-    summariseJob({ id: 'a', companyRepresentative: { firstName: 'Alex', lastName: 'Patapis' } })
-      .representative,
-    'Alex Patapis'
-  );
-  assert.equal(summariseJob({ id: 'a', salesRep: { name: 'Francis Ferrer' } }).representative, 'Francis Ferrer');
 });

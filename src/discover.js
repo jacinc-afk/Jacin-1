@@ -238,26 +238,35 @@ async function probeRepresentative(apiKey) {
     report(job);
   }
 
-  // Against a real job, a 404 is the route being absent and nothing else.
-  // Anything else — 200, 400, 405 — means the path resolves.
-  const candidates = [
-    `/jobs/${jobId}/representatives`,
-    `/jobs/${jobId}/representatives/company`,
-    `/jobs/${jobId}/company-representative`,
-    `/jobs/${jobId}/assignments`,
-    `/jobs/${jobId}/users`,
-  ];
+  // CONFIRMED, from a live 200 against this path:
+  //
+  //   GET /jobs/{id}/representatives/company
+  //     -> { id, type: "CompanyRepresentative",
+  //          user: { id, _link }, _link }
+  //
+  // /jobs/{id}/representatives is the same thing as a collection.
+  // company-representative, assignments and users are all 404.
+  const path = `/jobs/${jobId}/representatives/company`;
 
   console.log('');
-  for (const path of candidates) {
-    const res = await get(path, apiKey);
-    const verdict = res.status === 404 ? 'no such route' : 'ROUTE EXISTS';
-    console.log(`  GET ${path.replace(jobId, '{id}')} -> ${res.status}  (${verdict})`);
-    if (res.status === 200) {
-      console.log(`    ${truncate(JSON.stringify(res.json), 400)}`);
-    } else if (res.status !== 404) {
-      report(res);
-    }
+  const res = await get(path, apiKey);
+  console.log(`  GET /jobs/{id}/representatives/company -> ${res.status}`);
+  if (res.status === 200) {
+    console.log(`    ${truncate(JSON.stringify(res.json), 400)}`);
+  } else {
+    report(res);
+  }
+
+  // Reading it is settled; writing it is not. OPTIONS asks the server which
+  // methods the route accepts, which is the one way to learn PUT vs POST vs
+  // PATCH without actually reassigning a real job to the wrong person.
+  const options = await get(path, apiKey, 'OPTIONS');
+  console.log(`\n  OPTIONS /jobs/{id}/representatives/company -> ${options.status}`);
+  console.log(`    Allow: ${options.allow ?? '(not sent)'}`);
+  if (!options.allow) {
+    console.log('    No Allow header, so the write method is still unknown. Next');
+    console.log('    step is a real write against the Testing company, where');
+    console.log('    reassigning a job costs nothing.');
   }
 }
 
@@ -310,10 +319,11 @@ function printItems(json) {
   }
 }
 
-async function get(path, apiKey) {
+async function get(path, apiKey, method = 'GET') {
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
+      method,
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
   } catch (err) {
@@ -330,6 +340,7 @@ async function get(path, apiKey) {
 
   return {
     status: res.status,
+    allow: res.headers.get('allow'),
     retryAfter: res.headers.get('retry-after'),
     rateLimitSeen: Boolean(res.headers.get('ratelimit-limit') || res.headers.get('ratelimit-policy')),
     server: res.headers.get('server'),

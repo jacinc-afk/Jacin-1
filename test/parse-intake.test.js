@@ -1,14 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  parseIntakePosts,
-  parseLead,
-  normalizePhone,
-  parseAddress,
-  matchLeadSource,
-  buildNotes,
-} from '../src/parse-intake.js';
+import { parseIntakePosts, parseLead, normalizePhone, parseAddress, matchLeadSource, buildNotes, splitAddress } from '../src/parse-intake.js';
 import { LEAD_SOURCES } from '../src/acculynx-ids.js';
 
 // Taken from real posts in SB | Re Roof.
@@ -186,4 +179,32 @@ test('notes stay within the 1000 character limit', () => {
 Notes: ${'x'.repeat(2000)}`);
 
   assert.ok(buildNotes(lead).length <= 1000);
+});
+
+// Real address from the Repairs channel. Intake dropped the comma between
+// street and city, welding "St" and "Hobe" together. Losing this loses the
+// property, which is the strongest evidence for catching a second quote to
+// one house.
+test('a missing comma between street and city is recovered', () => {
+  assert.deepEqual(parseAddress('8792 SE Duncan StHobe Sound, FL 33455'), {
+    street1: '8792 SE Duncan St',
+    city: 'Hobe Sound',
+    state: 'FL',
+    zipCode: '33455',
+    country: 'US',
+  });
+});
+
+// The recovery must not start cutting up names that merely contain a capital.
+test('the comma recovery leaves well-formed addresses alone', () => {
+  assert.deepEqual(splitAddress('45 McDonald Way, Naples, FL 34102'), [
+    '45 McDonald Way',
+    'Naples',
+    'FL 34102',
+  ]);
+  assert.equal(parseAddress('123 DeSoto Blvd, Coral Gables, FL 33134').city, 'Coral Gables');
+});
+
+test('a two-part address with no street suffix stays unparsed rather than guessed', () => {
+  assert.equal(parseAddress('some place over there, FL 33455'), null);
 });

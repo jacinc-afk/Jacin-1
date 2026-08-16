@@ -161,10 +161,46 @@ export function splitName(raw) {
  * which is not reliably separable, and those fall back to null so the raw text
  * can be carried in the notes instead of a guessed street and city.
  */
+// Street suffixes, used only to recover a missing comma. Kept explicit rather
+// than matched loosely: splitting on any lowercase-then-uppercase boundary
+// would cut "McDonald" and "DeSoto" in half.
+const STREET_SUFFIXES = [
+  'St', 'Street', 'Ave', 'Avenue', 'Rd', 'Road', 'Dr', 'Drive', 'Ln', 'Lane',
+  'Ct', 'Court', 'Cir', 'Circle', 'Blvd', 'Boulevard', 'Way', 'Ter', 'Terrace',
+  'Pl', 'Place', 'Trl', 'Trail', 'Pkwy', 'Parkway', 'Hwy', 'Highway',
+];
+
+/**
+ * Split an address into its comma-separated parts, recovering the one comma
+ * intake most often drops.
+ *
+ * Real example from the channel:
+ *
+ *   8792 SE Duncan StHobe Sound, FL 33455
+ *
+ * The comma between street and city is missing, so "St" and "Hobe" are welded
+ * together and the whole address is unparseable — which loses the property,
+ * which is the strongest signal for catching a second quote to one house.
+ *
+ * The recovery is deliberately narrow: a known street suffix immediately
+ * followed by an uppercase letter, and only when the address is otherwise one
+ * comma short. Anything looser starts cutting up surnames.
+ */
+export function splitAddress(raw) {
+  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 2) return parts;
+
+  const suffixes = STREET_SUFFIXES.join('|');
+  const match = parts[0].match(new RegExp(`^(.*\\b(?:${suffixes}))([A-Z][a-z].*)$`));
+  if (!match) return parts;
+
+  return [match[1].trim(), match[2].trim(), parts[1]];
+}
+
 export function parseAddress(raw) {
   if (!raw) return null;
 
-  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  const parts = splitAddress(raw);
   if (parts.length < 3) return null;
 
   const stateZip = parts[parts.length - 1].match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);

@@ -32,7 +32,19 @@ const EXTERNAL_REFS_PATH = process.env.AL_EXTERNAL_REFS_PATH || '/jobs/external-
 // Search filters on CreationDate and both bounds are mandatory, so "all of
 // history" has to be spelled out. AccuLynx did not exist in 2000; anything
 // earlier than this is not a real record.
-const EPOCH = '2000-01-01T00:00:00Z';
+//
+// YYYY-MM-DD, NOT ISO 8601. The spec types these as `date-time` and gives
+// "2023-01-01T00:00:00Z" as the example, and the API rejects exactly that:
+//
+//   400  "Start Date is not in valid format (YYYY-MM-DD)."
+//
+// Every search in the first live run failed this way, which turned the whole
+// history check into a confident "no prior work found" on every lead.
+const EPOCH = '2000-01-01';
+
+function today(offsetDays = 0) {
+  return new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 /**
  * A client bound to one company's API key.
@@ -148,7 +160,7 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     // A day of slack on the upper bound: the runner's clock and AccuLynx's
     // need not agree, and a contact created "in the future" relative to us
     // would silently fall outside the window.
-    const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const endDate = today(1);
 
     const res = await request(
       `/contacts/search?pageSize=${pageSize}&pageStartIndex=${pageStartIndex}`,
@@ -299,10 +311,8 @@ export function createClient({ apiKey, label = 'acculynx' }) {
    * lead: it is the same list every time.
    */
   async function listUnassignedJobs({ sinceDays = 365, pageSize = 50, maxPages = 20 } = {}) {
-    const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const startDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
+    const endDate = today(1);
+    const startDate = today(-sinceDays);
 
     const jobs = [];
 

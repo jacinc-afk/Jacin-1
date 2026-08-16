@@ -142,6 +142,7 @@ async function unassignedByContact(client, department, log) {
 
 async function searchDepartment({ client, department, terms, lead, log }) {
   const byContactId = new Map();
+  const failures = [];
 
   for (const term of terms) {
     let contacts;
@@ -149,14 +150,25 @@ async function searchDepartment({ client, department, terms, lead, log }) {
       contacts = await client.searchContacts(term, { pageSize: MAX_CONTACTS_PER_DEPARTMENT });
     } catch (err) {
       // A single term failing is not the whole department failing — surname
-      // may work where "First Last" does not.
+      // may work where company name does not.
       log(`      ${department}: search "${term}" failed — ${err.message}`);
+      failures.push(err.message);
       continue;
     }
 
     for (const contact of contacts) {
       if (contact?.id && !byContactId.has(contact.id)) byContactId.set(contact.id, contact);
     }
+  }
+
+  // Every term failing is not "found nothing", it is "did not look". The first
+  // live run reported a confident "no prior work found (searched reroof,
+  // service, warranties)" while all nine searches were 400ing on a date
+  // format. Reporting a clean result from a failed search is worse than
+  // reporting no result at all, so this is raised to the caller as an error
+  // and the department is left out of the searched list.
+  if (failures.length === terms.length) {
+    throw new Error(`all ${terms.length} search term(s) failed: ${failures[0]}`);
   }
 
   const contacts = await hydrate([...byContactId.values()], { client, department, lead, log });

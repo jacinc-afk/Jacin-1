@@ -259,8 +259,14 @@ function reportHistory(history) {
   }
 
   if (candidates.length === 0) {
-    const scope = searched.length > 0 ? searched.join(', ') : 'nothing';
-    console.log(`      history: no prior work found (searched ${scope})`);
+    if (searched.length === 0) {
+      // Not the same statement as "no prior work found", and the difference
+      // matters: nobody looked.
+      console.log('      history: NOT SEARCHED — no department answered');
+      return;
+    }
+    const missed = errors.length > 0 ? ' — and see the NOT CHECKED lines above' : '';
+    console.log(`      history: no prior work found (searched ${searched.join(', ')})${missed}`);
     return;
   }
 

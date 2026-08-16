@@ -94,20 +94,6 @@ const LOOKUPS = [
     candidates: ['/users?pageSize=100', '/users'],
   },
   {
-    // Setting the Company Representative is a write, so the path is probed
-    // rather than assumed. A GET against the collection tells us the route
-    // exists; a 400 or 405 is as good a confirmation as a 200 here, and only
-    // 404 means the path is wrong. The job ID below is deliberately not a
-    // UUID, so a route that exists rejects it on binding instead of touching
-    // a real job.
-    label: 'Company Rep    (assignment write path — non-404 confirms)',
-    candidates: [
-      '/jobs/probe/representatives/company',
-      '/jobs/probe/company-representative',
-      '/jobs/probe/representatives',
-    ],
-  },
-  {
     // Dedup depends on this: each job gets stamped with the RingCentral post
     // that produced it, and the sync asks AccuLynx whether a post has already
     // become a job rather than tracking that itself. A wrong path here means
@@ -205,6 +191,72 @@ async function main() {
 
       report(res, '  ');
       if (res.status === 429) break;
+    }
+  }
+
+  await probeRepresentative(apiKey);
+}
+
+// Setting the Company Representative is a write, and the first attempt at
+// finding its path proved nothing. Probing with a non-UUID job ID gave 404s
+// carrying "jobId: The value 'probe' is not valid." — which looked like a
+// route match until the same message came back from a path known to be wrong
+// (/jobs/externalreferences). It is GET /jobs/{jobId} complaining, not the
+// probed route, so those 404s meant nothing either way.
+//
+// A real job ID removes the ambiguity: with a job that exists, 404 can only be
+// the route, not the ID. And the job payload itself is worth reading first —
+// if it carries the representative, its field name tells us what to send, and
+// if POST /jobs already accepts it, there is no second write to find at all.
+async function probeRepresentative(apiKey) {
+  console.log(`\n${'#'.repeat(70)}`);
+  console.log('COMPANY REPRESENTATIVE - how is it set?');
+  console.log('#'.repeat(70));
+
+  const list = await get('/jobs?pageSize=1', apiKey);
+  const jobId = (list.json?.items ?? [])[0]?.id;
+
+  if (!jobId) {
+    console.log('  No job available to probe with — this company has no jobs.');
+    console.log('  Create one in AccuLynx and re-run, or probe against a company');
+    console.log('  that has some. Probing with a made-up ID proves nothing here.');
+    return;
+  }
+
+  const job = await get(`/jobs/${jobId}`, apiKey);
+  console.log(`\n  GET /jobs/{id} -> ${job.status}`);
+  if (job.status === 200 && job.json) {
+    // The whole payload is too big to read in a log, and the field names are
+    // the only part that matters.
+    console.log(`    fields: ${Object.keys(job.json).sort().join(', ')}`);
+    for (const key of Object.keys(job.json)) {
+      if (/rep|assign|owner|sales/i.test(key)) {
+        console.log(`    ${key}: ${truncate(JSON.stringify(job.json[key]), 200)}`);
+      }
+    }
+  } else {
+    report(job);
+  }
+
+  // Against a real job, a 404 is the route being absent and nothing else.
+  // Anything else — 200, 400, 405 — means the path resolves.
+  const candidates = [
+    `/jobs/${jobId}/representatives`,
+    `/jobs/${jobId}/representatives/company`,
+    `/jobs/${jobId}/company-representative`,
+    `/jobs/${jobId}/assignments`,
+    `/jobs/${jobId}/users`,
+  ];
+
+  console.log('');
+  for (const path of candidates) {
+    const res = await get(path, apiKey);
+    const verdict = res.status === 404 ? 'no such route' : 'ROUTE EXISTS';
+    console.log(`  GET ${path.replace(jobId, '{id}')} -> ${res.status}  (${verdict})`);
+    if (res.status === 200) {
+      console.log(`    ${truncate(JSON.stringify(res.json), 400)}`);
+    } else if (res.status !== 404) {
+      report(res);
     }
   }
 }

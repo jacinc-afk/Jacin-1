@@ -8,10 +8,34 @@ import { getAccessToken } from './ringcentral.js';
 import { fetchPosts } from './ringcentral-posts.js';
 import { parseIntakePosts, buildNotes } from './parse-intake.js';
 import { LEAD_CHANNELS } from './acculynx-ids.js';
-import { createContact, createJob, findJobForPost, stampPostReference } from './acculynx.js';
+import { createClient } from './acculynx.js';
+import { CHANNEL_DEPARTMENT } from './departments.js';
+import { findHistory, CONFIDENCE } from './history.js';
 
 const APPLY = process.env.SYNC_APPLY === 'true';
 const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
+
+// Which company this run writes into. Leads are still routed per channel, but
+// while the sync is being proved out everything goes to one target so a bad
+// run cannot scatter junk across three live companies.
+const TARGET = process.env.ACCULYNX_TARGET || 'test';
+const TARGET_KEY_VARS = {
+  test: 'ACCULYNX_API_KEY_TEST',
+  reroof: 'ACCULYNX_KEY_REROOF',
+  service: 'ACCULYNX_KEY_SERVICE',
+  warranties: 'ACCULYNX_KEY_WARRANTIES',
+  production: 'ACCULYNX_API_KEY',
+};
+
+function writeClient() {
+  const keyVar = TARGET_KEY_VARS[TARGET];
+  if (!keyVar) throw new Error(`Unknown ACCULYNX_TARGET: ${TARGET}`);
+  const apiKey = process.env[keyVar];
+  if (!apiKey) throw new Error(`Missing ${keyVar} for target "${TARGET}"`);
+  return createClient({ apiKey, label: TARGET });
+}
+
+const acculynx = writeClient();
 
 async function main() {
   console.log(APPLY ? 'MODE: APPLY — will create records in AccuLynx' : 'MODE: DRY RUN — nothing will be created');
@@ -40,8 +64,9 @@ async function main() {
   const seen = new Map();
 
   for (const [chatId, channel] of Object.entries(LEAD_CHANNELS)) {
+    const department = CHANNEL_DEPARTMENT[chatId]?.department ?? '(unmapped)';
     console.log('='.repeat(70));
-    console.log(`${channel.name}  (work type ${channel.workType})`);
+    console.log(`${channel.name}  ->  ${department}  (work type ${channel.workType})`);
     console.log('='.repeat(70));
 
     let posts;
@@ -127,7 +152,7 @@ async function handleLead({ lead, post, channel, reference, stats }) {
   const notes = buildNotes(lead, { channel: channel.name, postedAt: post.creationTime });
 
   try {
-    const existing = await findJobForPost(reference);
+    const existing = await acculynx.findJobForPost(reference);
     if (existing) {
       stats.skipped += 1;
       console.log(`  SKIP    ${who} — already synced`);
@@ -139,6 +164,10 @@ async function handleLead({ lead, post, channel, reference, stats }) {
     console.error(`  FAILED  ${who} — could not check for an existing job: ${err.message}`);
     return;
   }
+
+  // Every department, every lead. "Obviously a new customer" is exactly the
+  // case this is here to disprove, and it costs one search per company.
+  const history = await lookupHistory(lead, who);
 
   if (!APPLY) {
     console.log(`  WOULD CREATE  ${who}`);
@@ -154,13 +183,14 @@ async function handleLead({ lead, post, channel, reference, stats }) {
       `      source    ${lead.leadSourceId ?? `UNMATCHED <- ${lead.rawLeadSource ?? '(field absent)'}`}`
     );
     console.log(`      notes     ${notes.split('\n')[0]}...`);
+    reportHistory(history);
     return;
   }
 
   let jobId = null;
   try {
-    const contactId = await createContact(lead);
-    jobId = await createJob({
+    const contactId = await acculynx.createContact(lead);
+    jobId = await acculynx.createJob({
       contactId,
       workType: channel.workType,
       address: lead.address,
@@ -170,10 +200,11 @@ async function handleLead({ lead, post, channel, reference, stats }) {
 
     // Immediately, so an interruption leaves at most one duplicate rather than
     // recreating this lead on every future run.
-    await stampPostReference(jobId, reference);
+    await acculynx.stampPostReference(jobId, reference);
 
     stats.created += 1;
     console.log(`  CREATED ${who} — job ${jobId}`);
+    reportHistory(history);
   } catch (err) {
     stats.failed += 1;
     console.error(`  FAILED  ${who} — ${err.message}`);
@@ -188,13 +219,67 @@ async function handleLead({ lead, post, channel, reference, stats }) {
 }
 
 /**
+ * Search every department for prior work on this customer.
+ *
+ * Never throws. A history search that fails is a lead that goes in without
+ * context, which is what happens today anyway; a history search that fails and
+ * takes the lead down with it is strictly worse. The failure is carried
+ * forward so the output can say the search was incomplete instead of implying
+ * it came back clean.
+ */
+async function lookupHistory(lead, who) {
+  try {
+    return await findHistory(lead, { log: (message) => console.log(message) });
+  } catch (err) {
+    console.error(`      history search failed for ${who}: ${err.message}`);
+    return { candidates: [], errors: [{ department: null, message: err.message }], searched: [] };
+  }
+}
+
+function reportHistory(history) {
+  const { candidates, errors, searched } = history;
+
+  if (errors.length > 0) {
+    for (const error of errors) {
+      console.log(`      history: ${error.department ?? 'search'} NOT CHECKED — ${error.message}`);
+    }
+  }
+
+  if (candidates.length === 0) {
+    const scope = searched.length > 0 ? searched.join(', ') : 'nothing';
+    console.log(`      history: no prior work found (searched ${scope})`);
+    return;
+  }
+
+  for (const candidate of candidates) {
+    const label = candidate.confidence === CONFIDENCE.STRONG ? 'MATCH' :
+      candidate.confidence === CONFIDENCE.PROPERTY ? 'SAME PROPERTY' : 'possible';
+    console.log(
+      `      history: ${label} in ${candidate.department} — ${candidate.name}` +
+        `${candidate.address ? ` (${candidate.address})` : ''} [${candidate.reasons.join('; ')}]`
+    );
+    for (const job of candidate.jobs) {
+      const parts = [job.workType, job.milestone, job.representative && `rep: ${job.representative}`]
+        .filter(Boolean)
+        .join(' · ');
+      console.log(`        prior job ${job.id} — ${parts || '(no detail)'}`);
+      // First run only: names the fields the job payload really has, so the
+      // guesses in summariseJob can be replaced with the actual keys.
+      if (process.env.SYNC_DUMP_JOB_KEYS === 'true') {
+        console.log(`          fields: ${job.keys.join(', ')}`);
+      }
+    }
+  }
+}
+
+/**
  * Refuse to write unless dedup is known to work. If the external-reference
  * lookup is broken, every run would recreate every lead, and the mess lands in
  * a live CRM. Better to stop.
  */
 async function preflight() {
   try {
-    await findJobForPost('preflight-check-no-such-post');
+    await acculynx.findJobForPost('preflight-check-no-such-post');
     console.log('Preflight: dedup lookup responding\n');
   } catch (err) {
     console.error(`Preflight FAILED: ${err.message}`);

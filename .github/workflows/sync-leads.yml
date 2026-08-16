@@ -16,7 +16,7 @@ on:
       target:
         description: 'Which AccuLynx company to write to'
         type: choice
-        options: [test, production]
+        options: [test, reroof, service, warranties, production]
         default: test
 
 permissions:
@@ -51,3 +51,12 @@ jobs:
           RC_SERVER_URL: ${{ secrets.RC_SERVER_URL }}
           ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
           ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
+          # The history search reads all three departments regardless of which
+          # one is being written to — a returning customer is only visible from
+          # the company that holds their old job.
+          ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
+          ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}
+          ACCULYNX_KEY_WARRANTIES: ${{ secrets.ACCULYNX_KEY_WARRANTIES }}
+          # Prints the real field names on prior jobs, so the guessed ones in
+          # summariseJob can be replaced with what AccuLynx actually returns.
+          SYNC_DUMP_JOB_KEYS: 'true'

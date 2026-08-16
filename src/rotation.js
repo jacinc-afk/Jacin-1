@@ -121,24 +121,46 @@ export function assignmentDecision({ lead, department, pointer = 0, candidates =
 /**
  * Did the intake note ask for someone by name?
  *
- * Only names in this department's own user list count. Matching loose text
- * would flag on any stray capitalised word, and a flag nobody trusts gets
- * ignored, which is worse than not flagging.
+ * Deliberately hard to trigger. A surname on its own is not enough: the
+ * salespeople here are called Smith and Parker, and a customer named
+ * Christopher Smith would otherwise flag as "the intake names Andrei Smith"
+ * forever. A flag that fires on the customer's own name is worse than no flag,
+ * because people stop reading them.
+ *
+ * So a match needs either the full name, or a surname next to a phrase that
+ * actually asks for someone. And the customer's own surname never counts,
+ * whatever it is next to.
  */
+const REQUEST_CUES = [
+  'ask for', 'asked for', 'asking for', 'wants', 'wanted', 'requested',
+  'requesting', 'spoke to', 'spoke with', 'dealt with', 'dealing with',
+  'worked with', 'referred by', 'sent by', 'talk to', 'talked to',
+  'his guy', 'her guy', 'their guy', 'rep is', 'salesman',
+];
+
 export function requestedSalesperson(lead, department) {
-  const haystack = [lead.rawLeadSource, lead.reason, lead.notes, lead.rawText]
+  const haystack = [lead?.rawLeadSource, lead?.reason, lead?.problem, lead?.notes, lead?.rawText]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
 
   if (!haystack) return null;
 
+  const customerSurname = (lead?.lastName || '').trim().toLowerCase();
+
   for (const name of Object.keys(department?.users ?? {})) {
-    const [first, last] = name.split(' ');
-    // Full name, or a surname distinctive enough to stand alone. A bare first
-    // name is not enough — "alex" appears in ordinary sentences.
-    if (haystack.includes(name.toLowerCase())) return name;
-    if (last && haystack.includes(last.toLowerCase())) return name;
+    const full = name.toLowerCase();
+    const surname = full.split(' ').slice(-1)[0];
+
+    // The customer sharing a name with a salesperson tells us nothing.
+    if (surname && surname === customerSurname) continue;
+
+    if (haystack.includes(full)) return name;
+
+    // A surname alone only counts next to something that reads as a request.
+    if (surname && haystack.includes(surname)) {
+      if (REQUEST_CUES.some((cue) => haystack.includes(cue))) return name;
+    }
   }
   return null;
 }

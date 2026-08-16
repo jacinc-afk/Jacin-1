@@ -117,13 +117,36 @@ test('two different prior reps are flagged without suggesting either one', () =>
   assert.equal(decision.suggested, null);
 });
 
-test('a named salesperson is recognised by full name or surname', () => {
+test('a full name in the notes is a request', () => {
   assert.equal(requestedSalesperson({ reason: 'wants Francis Ferrer' }, REROOF), 'Francis Ferrer');
-  assert.equal(requestedSalesperson({ notes: 'ask for Patapis' }, REROOF), 'Alex Patapis');
 });
 
-// A flag nobody trusts gets ignored, so a bare first name is not enough.
-test('an ordinary sentence containing a first name is not a request', () => {
+test('a surname counts only next to something that reads as a request', () => {
+  assert.equal(requestedSalesperson({ notes: 'ask for Patapis' }, REROOF), 'Alex Patapis');
+  // No cue — could be anything, including the caller's own surname.
+  assert.equal(requestedSalesperson({ notes: 'Patapis Road, third house' }, REROOF), null);
+});
+
+// Two of the salespeople are called Smith and Parker. Matching a bare surname
+// meant a customer named Christopher Smith flagged as "the intake names Andrei
+// Smith", on every lead, forever. A flag that fires on the customer's own name
+// trains people to ignore flags.
+test("the customer's own surname is never read as a request", () => {
+  assert.equal(
+    requestedSalesperson(
+      { lastName: 'Smith', reason: 'Christopher Smith wants an estimate' },
+      REROOF
+    ),
+    null
+  );
+  assert.equal(
+    requestedSalesperson({ lastName: 'Parker', notes: 'ask for a callback' }, REROOF),
+    null
+  );
+});
+
+// A flag nobody trusts gets ignored.
+test('an ordinary sentence is not a request', () => {
   assert.equal(requestedSalesperson({ reason: 'roof leaking over the deck' }, REROOF), null);
   assert.equal(requestedSalesperson({}, REROOF), null);
 });

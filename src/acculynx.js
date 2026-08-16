@@ -261,6 +261,50 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     return res.json;
   }
 
+  // Users are read once per client and reused. Both directions are needed —
+  // a name to assign by, and an ID to report a prior job's owner by — and the
+  // list is small and stable within a run.
+  let userCache = null;
+
+  async function listUsers() {
+    if (userCache) return userCache;
+
+    // pageSize above 50 is rejected: "Page Size must not be greater than 50."
+    const res = await request('/users?pageSize=50');
+    if (!res.ok) {
+      throw new Error(`[${label}] User listing failed (${res.status}): ${truncate(res.body, 200)}`);
+    }
+
+    userCache = (res.json?.items ?? []).map((user) => ({
+      id: user.id,
+      // Some records carry a double space between names; collapse it so a
+      // lookup by "Noah Damiani" finds "Noah  Damiani".
+      name: [user.firstName, user.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+    }));
+    return userCache;
+  }
+
+  /**
+   * The user ID for a person, in THIS company.
+   *
+   * Resolved live rather than from a table in the repo. User IDs are
+   * per-company — the same person is a different GUID in each — so a hardcoded
+   * map is both five times the size and wrong the moment someone joins or
+   * leaves. Returns null when the name is not in this company, and the caller
+   * flags rather than assigning, because assigning to nobody in particular is
+   * worse than asking.
+   */
+  async function resolveUserId(name) {
+    const wanted = String(name).replace(/\s+/g, ' ').trim().toLowerCase();
+    const users = await listUsers();
+    return users.find((user) => user.name.toLowerCase() === wanted)?.id ?? null;
+  }
+
+  async function resolveUserName(userId) {
+    const users = await listUsers();
+    return users.find((user) => user.id === userId)?.name ?? null;
+  }
+
   /**
    * One contact, with its phone numbers and email addresses expanded.
    *
@@ -402,6 +446,9 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     listUnassignedJobs,
     getCompanyRepresentative,
     setCompanyRepresentative,
+    listUsers,
+    resolveUserId,
+    resolveUserName,
     createContact,
     createJob,
   };

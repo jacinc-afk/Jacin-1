@@ -50,25 +50,52 @@ export async function postMessage(token, chatId, text) {
 }
 
 /**
- * The message for a lead that needs a decision. Kept short — this lands in a
- * working channel, and a wall of text gets scrolled past. Says what was found,
- * what was done, and what is needed.
+ * The message for a lead that needs a decision.
+ *
+ * Kept short and specific: it lands in a private thread that gets read on a
+ * phone, and the reader needs three things — who the customer is, why the
+ * machine would not decide, and what it would have done. A wall of text gets
+ * scrolled past, and a flag that gets scrolled past is the same as no flag.
  */
-export function buildFlagMessage({ lead, reason, jobId, department, matches = [] }) {
-  const who = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'this lead';
-  const lines = [`⚠️ **${who}** needs a decision before assignment — ${reason}`];
+export function buildFlagMessage({ lead, who, reason, jobId, department, suggested, matches = [] }) {
+  const name = who || [lead?.firstName, lead?.lastName].filter(Boolean).join(' ') || 'this lead';
+  const lines = [`**${name}** needs a decision — ${reason}`];
 
-  if (lead.phone) lines.push(`Phone: ${lead.phone}`);
-  if (jobId) lines.push(`Created in ${department} as job ${jobId}, currently unassigned.`);
-
-  for (const match of matches.slice(0, 5)) {
-    const parts = [match.department, match.workType, match.rep && `rep: ${match.rep}`]
-      .filter(Boolean)
-      .join(' · ');
-    lines.push(`Prior work — ${parts}`);
+  const contact = [lead?.phone, lead?.email].filter(Boolean).join('  ');
+  if (contact) lines.push(contact);
+  if (lead?.address) {
+    lines.push(`${lead.address.street1}, ${lead.address.city} ${lead.address.zipCode}`);
   }
-  if (matches.length > 5) {
-    lines.push(`…and ${matches.length - 5} more prior job(s).`);
+
+  if (jobId) {
+    lines.push(`In ${department}: job ${jobId}, currently unassigned.`);
+  }
+  if (suggested) {
+    lines.push(`Looks like it should be ${suggested}.`);
+  }
+
+  // The prior work is the evidence behind the flag. Without it the reader has
+  // to go and find it themselves, which is the work the flag was meant to save.
+  for (const match of matches.slice(0, 4)) {
+    const label =
+      match.confidence === 'strong' ? 'Same customer' :
+      match.confidence === 'property' ? 'Same property' : 'Possibly';
+    lines.push(`${label} in ${match.department}: ${match.name}${match.address ? ` — ${match.address}` : ''}`);
+
+    for (const job of (match.jobs ?? []).slice(0, 3)) {
+      const detail = [job.workType, job.milestone, job.representative && `rep ${job.representative}`]
+        .filter(Boolean)
+        .join(' · ');
+      lines.push(`   ${job.jobNumber ? `#${job.jobNumber} ` : ''}${detail || 'no detail available'}`);
+    }
+
+    if (match.judgment) {
+      lines.push(`   judged: ${match.judgment.reason}`);
+    }
+  }
+
+  if (matches.length > 4) {
+    lines.push(`…and ${matches.length - 4} more match(es).`);
   }
 
   return lines.join('\n');

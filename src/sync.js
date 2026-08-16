@@ -9,9 +9,11 @@ import { fetchPosts } from './ringcentral-posts.js';
 import { parseIntakePosts, buildNotes } from './parse-intake.js';
 import { LEAD_CHANNELS } from './acculynx-ids.js';
 import { createClient } from './acculynx.js';
-import { CHANNEL_DEPARTMENT } from './departments.js';
+import { CHANNEL_DEPARTMENT, DEPARTMENTS, FLAG_CHAT_ID } from './departments.js';
 import { findHistory, CONFIDENCE } from './history.js';
 import { judgeCandidates, applyVerdicts } from './match-ai.js';
+import { assignmentDecision, advance, readPointers, writePointers } from './rotation.js';
+import { postMessage, buildFlagMessage } from './ringcentral-notify.js';
 
 const APPLY = process.env.SYNC_APPLY === 'true';
 const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
@@ -43,11 +45,21 @@ function writeClient() {
 
 const acculynx = writeClient();
 
+// Whose turn it is, per department. Loaded once and written back at the end,
+// so a crash mid-run cannot leave the rotation half-advanced.
+let pointers = {};
+
+// Leads that need a human decision. Collected rather than posted as they come
+// up, so a run that dies partway does not leave half a conversation in chat.
+const flags = [];
+
 async function main() {
   console.log(APPLY ? 'MODE: APPLY — will create records in AccuLynx' : 'MODE: DRY RUN — nothing will be created');
   console.log(`Looking back ${LOOKBACK_DAYS} day(s)\n`);
 
   if (APPLY) await preflight();
+
+  pointers = await readPointers();
 
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const token = await getAccessToken();
@@ -109,7 +121,7 @@ async function main() {
         }
         if (key) seen.set(key, post.creationTime);
 
-        await handleLead({ lead, post, channel, reference, stats });
+        await handleLead({ lead, post, channel, reference, stats, department });
       }
     }
   }
@@ -130,6 +142,22 @@ async function main() {
       console.log(`  job ${item.jobId}  ${item.who}  (post ${item.reference})`);
     }
     console.log('!'.repeat(70));
+  }
+
+  await postFlags(token);
+
+  // Written once, at the end. Writing per-lead would leave the rotation
+  // half-advanced if the run died, and this file is the only record of whose
+  // turn it is.
+  if (APPLY) {
+    try {
+      await writePointers(pointers);
+      console.log(`\nRotation pointers: ${JSON.stringify(pointers)}`);
+      console.log('Commit state/rotation.json, or the next run repeats this turn.');
+    } catch (err) {
+      console.error(`\nCould not save rotation pointers: ${err.message}`);
+      console.error(`Record these by hand: ${JSON.stringify(pointers)}`);
+    }
   }
 
   if (!APPLY && stats.leads > stats.skipped) {
@@ -153,7 +181,7 @@ function nameOf(lead) {
   return [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)';
 }
 
-async function handleLead({ lead, post, channel, reference, stats }) {
+async function handleLead({ lead, post, channel, reference, stats, department }) {
   const who = nameOf(lead);
   const notes = buildNotes(lead, { channel: channel.name, postedAt: post.creationTime });
 
@@ -190,6 +218,7 @@ async function handleLead({ lead, post, channel, reference, stats }) {
     );
     console.log(`      notes     ${notes.split('\n')[0]}...`);
     reportHistory(history);
+    reportAssignment(planAssignment({ lead, department, history }));
     return;
   }
 
@@ -211,6 +240,8 @@ async function handleLead({ lead, post, channel, reference, stats }) {
     stats.created += 1;
     console.log(`  CREATED ${who} — job ${jobId}`);
     reportHistory(history);
+
+    await assignOrFlag({ lead, who, jobId, department, history, stats });
   } catch (err) {
     stats.failed += 1;
     console.error(`  FAILED  ${who} — ${err.message}`);
@@ -299,6 +330,121 @@ function reportHistory(history) {
       if (process.env.SYNC_DUMP_JOB_KEYS === 'true') {
         console.log(`          fields: ${job.keys.join(', ')}`);
       }
+    }
+  }
+}
+
+
+/**
+ * Who this lead should go to, before anything has been written.
+ *
+ * Split out from the write so a dry run reports the same decision the apply
+ * run would make — the point of a dry run is to be able to trust it.
+ */
+function planAssignment({ lead, department, history }) {
+  const config = DEPARTMENTS[department];
+  if (!config) {
+    return { assign: null, flag: true, reason: `channel maps to unknown department "${department}"` };
+  }
+  return assignmentDecision({
+    lead,
+    department: config,
+    pointer: pointers[department] ?? 0,
+    candidates: history.candidates,
+  });
+}
+
+function reportAssignment(decision) {
+  if (decision.assign) {
+    console.log(`      assign:  ${decision.assign}`);
+  } else {
+    console.log(`      assign:  FLAG FOR REVIEW — ${decision.reason}`);
+    if (decision.suggested) console.log(`               suggested: ${decision.suggested}`);
+  }
+}
+
+/**
+ * Set the job's Company Representative, or flag it for a person to decide.
+ *
+ * The rotation pointer moves only on a real assignment. A flagged lead does
+ * not take anyone's turn, and neither does one whose assignment write failed —
+ * in that case the job exists and is unassigned, which is exactly what a flag
+ * describes, so it becomes one.
+ */
+async function assignOrFlag({ lead, who, jobId, department, history, stats }) {
+  const decision = planAssignment({ lead, department, history });
+
+  if (!decision.assign) {
+    flags.push({ lead, who, jobId, department, reason: decision.reason,
+      suggested: decision.suggested ?? null, matches: history.candidates });
+    console.log(`      FLAGGED — ${decision.reason}`);
+    return;
+  }
+
+  // Resolved against the company actually being written to, not against a
+  // table. On a test run that company is Testing, where these people have
+  // entirely different IDs, and a hardcoded map would assign to a stranger.
+  let userId = null;
+  try {
+    userId = await acculynx.resolveUserId(decision.assign);
+  } catch (err) {
+    console.error(`      could not read users: ${err.message}`);
+  }
+
+  if (!userId) {
+    flags.push({ lead, who, jobId, department,
+      reason: `${decision.assign} is not a user in the ${TARGET} company, so the job was left unassigned`,
+      suggested: decision.assign, matches: history.candidates });
+    console.log(`      FLAGGED — ${decision.assign} not found in ${TARGET}`);
+    return;
+  }
+
+  try {
+    await acculynx.setCompanyRepresentative(jobId, userId);
+    // Only now. This is the whole rule: a lead that goes in unflagged moves
+    // the rotation on, and nothing else does.
+    pointers[department] = advance(DEPARTMENTS[department], pointers[department] ?? 0);
+    console.log(`      ASSIGNED to ${decision.assign}`);
+  } catch (err) {
+    stats.failed += 1;
+    flags.push({ lead, who, jobId, department,
+      reason: `assignment to ${decision.assign} failed (${err.message}) — the job exists but is unassigned`,
+      suggested: decision.assign, matches: history.candidates });
+    console.error(`      ASSIGNMENT FAILED — ${err.message}`);
+  }
+}
+
+/**
+ * Send the flagged leads to the private thread.
+ *
+ * One message per lead: each is a separate decision someone has to make, and
+ * a single digest gets skimmed and half-actioned. Posted at the end of the run
+ * so a crash partway through does not leave a half-finished conversation.
+ */
+async function postFlags(token) {
+  if (flags.length === 0) return;
+
+  console.log(`\n${'='.repeat(70)}`);
+  console.log(`${flags.length} lead(s) need a decision`);
+  console.log('='.repeat(70));
+
+  for (const flag of flags) {
+    const text = buildFlagMessage(flag);
+
+    if (!APPLY) {
+      console.log(`\n  would post to chat ${FLAG_CHAT_ID}:`);
+      console.log(text.split('\n').map((line) => `    ${line}`).join('\n'));
+      continue;
+    }
+
+    try {
+      await postMessage(token, FLAG_CHAT_ID, text);
+      console.log(`  notified: ${flag.who}`);
+    } catch (err) {
+      // The lead is in AccuLynx either way; what is lost is the notification.
+      // So print the whole message here, where it is at least recoverable.
+      console.error(`  COULD NOT NOTIFY about ${flag.who}: ${err.message}`);
+      console.error(text.split('\n').map((line) => `    ${line}`).join('\n'));
     }
   }
 }

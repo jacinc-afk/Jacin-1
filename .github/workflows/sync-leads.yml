@@ -20,7 +20,9 @@ on:
         default: test
 
 permissions:
-  contents: read
+  # The rotation pointer is committed back after an apply run — it is the only
+  # record of whose turn it is, and a run that forgot it would repeat a turn.
+  contents: write
 
 concurrency:
   # Two runs at once could both see a lead as new and create it twice.
@@ -32,6 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Needed to push the rotation pointer back to this branch.
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -65,3 +70,20 @@ jobs:
           # Prints the real field names on prior jobs, so the guessed ones in
           # summariseJob can be replaced with what AccuLynx actually returns.
           SYNC_DUMP_JOB_KEYS: 'true'
+          RC_FLAG_CHAT_ID: ${{ secrets.RC_FLAG_CHAT_ID }}
+
+      - name: Save the rotation pointer
+        # Only after a real apply run, and only when it actually moved. A dry
+        # run must leave no trace, and an unchanged file must not produce an
+        # empty commit on every run.
+        if: ${{ inputs.apply }}
+        run: |
+          if git diff --quiet -- state/rotation.json; then
+            echo "Rotation unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/rotation.json
+          git commit -m "Advance the lead rotation pointer"
+          git push origin HEAD:${{ github.ref_name }}

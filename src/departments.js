@@ -187,4 +187,9 @@ export const SEARCH_DEPARTMENTS = ['reroof', 'service', 'warranties'];
 // Leads that need a human decision are reported here rather than in the
 // working channel. This is the Personal chat — RingCentral's note-to-self
 // thread, one member — so it is private to Jacin, whose JWT the sync runs as.
-export const FLAG_CHAT_ID = '1586419228674';
+//
+// Overridable, because whether a Personal chat actually raises a phone
+// notification is not something I have confirmed. If these flags turn out to
+// sit there unseen, set RC_FLAG_CHAT_ID to a direct-message chat instead; the
+// discovery script lists the candidates.
+export const FLAG_CHAT_ID = process.env.RC_FLAG_CHAT_ID || '1586419228674';

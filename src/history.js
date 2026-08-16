@@ -396,13 +396,13 @@ export function summariseJob(job) {
 }
 
 /**
- * The representative comes back as a user GUID, and GUIDs are per-company —
- * the same person is a different ID in each. So it is resolved against that
- * department's own user map rather than looked up globally.
+ * The representative comes back as a user GUID, and GUIDs are per-company, so
+ * it is resolved against that same company's live user list.
  *
- * An unresolved GUID is reported as-is rather than dropped: it means someone
- * was added in AccuLynx and departments.js has not caught up, and a visible
- * GUID prompts that fix where a silent null would not.
+ * A GUID that resolves to nobody is reported as-is rather than dropped. It
+ * means a real person owns this job and we cannot name them — which still
+ * counts as a conflict for assignment purposes, and a visible GUID prompts
+ * someone to look where a silent null would not.
  */
 async function representativeName(client, department, jobId, log) {
   let userId;
@@ -414,11 +414,11 @@ async function representativeName(client, department, jobId, log) {
   }
   if (!userId) return null;
 
-  const users = DEPARTMENTS[department]?.users ?? {};
-  for (const [name, id] of Object.entries(users)) {
-    if (id === userId) return name;
+  try {
+    return (await client.resolveUserName(userId)) ?? `unknown user ${userId}`;
+  } catch {
+    return `unknown user ${userId}`;
   }
-  return `unknown user ${userId}`;
 }
 
 function nameOf(value) {

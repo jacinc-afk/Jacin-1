@@ -10,7 +10,7 @@ on:
       target:
         description: 'Which AccuLynx company to read IDs from'
         type: choice
-        options: [test, reroof, service, warranties, newconstruction, production]
+        options: [test, reroof, service, warranties]
         default: test
 
 permissions:
@@ -33,7 +33,6 @@ jobs:
         run: npm run discover
         env:
           ACCULYNX_TARGET: ${{ inputs.target }}
-          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
           ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
           ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
           ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}

@@ -29,7 +29,9 @@ const KEY_VARS = {
   warranties: 'ACCULYNX_KEY_WARRANTIES',
   newconstruction: 'ACCULYNX_KEY_NEWCONSTRUCTION',
   test: 'ACCULYNX_API_KEY_TEST',
-  production: 'ACCULYNX_API_KEY',
+  // ACCULYNX_API_KEY is intentionally absent. It holds the same key as
+  // ACCULYNX_KEY_SERVICE — proven by identical SHA-256 fingerprints — under a
+  // name that suggests otherwise.
 };
 
 // Paths quoted directly in AccuLynx's published documentation, not inferred.
@@ -113,10 +115,15 @@ const LOOKUPS = [
 async function main() {
   // An API key is bound to one AccuLynx company, so the test company has its
   // own key and its own set of IDs behind it.
-  const target = process.env.ACCULYNX_TARGET || 'production';
-  const keyVar = KEY_VARS[target] ?? 'ACCULYNX_API_KEY';
-  const apiKey = process.env[keyVar];
+  const target = process.env.ACCULYNX_TARGET || 'test';
+  const keyVar = KEY_VARS[target];
 
+  if (!keyVar) {
+    console.error(`Unknown target "${target}". Known: ${Object.keys(KEY_VARS).join(', ')}`);
+    process.exit(1);
+  }
+
+  const apiKey = process.env[keyVar];
   if (!apiKey) {
     console.error(`Missing ${keyVar}. Get one at https://my.acculynx.com/apikeys`);
     process.exit(1);

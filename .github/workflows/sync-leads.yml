@@ -16,7 +16,7 @@ on:
       target:
         description: 'Which AccuLynx company to write to'
         type: choice
-        options: [test, reroof, service, warranties, production]
+        options: [test, reroof, service, warranties]
         default: test
 
 permissions:
@@ -52,7 +52,6 @@ jobs:
           RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}
           RC_JWT: ${{ secrets.RC_JWT }}
           RC_SERVER_URL: ${{ secrets.RC_SERVER_URL }}
-          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
           ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
           # The history search reads all three departments regardless of which
           # one is being written to — a returning customer is only visible from

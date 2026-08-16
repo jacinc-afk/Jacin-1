@@ -20,12 +20,17 @@ const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
 // while the sync is being proved out everything goes to one target so a bad
 // run cannot scatter junk across three live companies.
 const TARGET = process.env.ACCULYNX_TARGET || 'test';
+//
+// There is deliberately no "production" target. ACCULYNX_API_KEY used to serve
+// as one, and a fingerprint comparison confirmed it holds the identical key to
+// ACCULYNX_KEY_SERVICE — a name that reads like "the live company" while
+// actually reaching Service. Pointing a run at it believing otherwise would
+// file reroof and warranty leads into the Service company.
 const TARGET_KEY_VARS = {
   test: 'ACCULYNX_API_KEY_TEST',
   reroof: 'ACCULYNX_KEY_REROOF',
   service: 'ACCULYNX_KEY_SERVICE',
   warranties: 'ACCULYNX_KEY_WARRANTIES',
-  production: 'ACCULYNX_API_KEY',
 };
 
 function writeClient() {

@@ -94,6 +94,20 @@ const LOOKUPS = [
     candidates: ['/users?pageSize=100', '/users'],
   },
   {
+    // Setting the Company Representative is a write, so the path is probed
+    // rather than assumed. A GET against the collection tells us the route
+    // exists; a 400 or 405 is as good a confirmation as a 200 here, and only
+    // 404 means the path is wrong. The job ID below is deliberately not a
+    // UUID, so a route that exists rejects it on binding instead of touching
+    // a real job.
+    label: 'Company Rep    (assignment write path — non-404 confirms)',
+    candidates: [
+      '/jobs/probe/representatives/company',
+      '/jobs/probe/company-representative',
+      '/jobs/probe/representatives',
+    ],
+  },
+  {
     // Dedup depends on this: each job gets stamped with the RingCentral post
     // that produced it, and the sync asks AccuLynx whether a post has already
     // become a job rather than tracking that itself. A wrong path here means

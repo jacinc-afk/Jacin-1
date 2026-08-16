@@ -220,6 +220,35 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     return res.json?.user?.id ?? null;
   }
 
+  /**
+   * Assign the job. OPTIONS on this route answered `Allow: GET, POST`, so POST
+   * is the method — not a guess, and not a PUT.
+   *
+   * The body is the one thing still inferred: it mirrors the shape the GET
+   * returns, `{ user: { id } }`, which is also how every other reference on
+   * this API is written (contact, leadSource, workType, jobCategory are all
+   * `{ id }`). Verified against the Testing company before it is pointed at a
+   * live one.
+   *
+   * The user GUID must come from the same company as the key. The same person
+   * has a different ID in each, and sending another company's would either be
+   * rejected or, worse, match somebody else.
+   */
+  async function setCompanyRepresentative(jobId, userId) {
+    const res = await request(`/jobs/${jobId}/representatives/company`, {
+      method: 'POST',
+      body: { user: { id: userId } },
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `[${label}] Assigning job ${jobId} to user ${userId} failed (${res.status}): ` +
+          `${truncate(res.body, 300)}`
+      );
+    }
+    return res.json;
+  }
+
   async function getJob(jobId) {
     const res = await request(`/jobs/${jobId}`);
     if (res.status === 404) return null;
@@ -291,6 +320,7 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     getContactJobs,
     getJob,
     getCompanyRepresentative,
+    setCompanyRepresentative,
     createContact,
     createJob,
   };

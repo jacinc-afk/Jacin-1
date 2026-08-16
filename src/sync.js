@@ -18,6 +18,15 @@ import { postMessage, buildFlagMessage } from './ringcentral-notify.js';
 const APPLY = process.env.SYNC_APPLY === 'true';
 const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
 
+// Stop after this many creations in one run. 0 means no limit.
+//
+// A first run against a live company is the moment to find out that something
+// is subtly wrong — a work type mapped to the wrong thing, a lead source that
+// does not apply. Finding that out over three records is a cleanup; finding it
+// out over thirty is an afternoon. The leads that were not created are not
+// lost: nothing was stamped for them, so the next run picks them up.
+const MAX_CREATES = Number(process.env.SYNC_MAX_CREATES || 0);
+
 // Which company this run writes into. Leads are still routed per channel, but
 // while the sync is being proved out everything goes to one target so a bad
 // run cannot scatter junk across three live companies.
@@ -71,6 +80,9 @@ async function main() {
     duplicates: 0,
     created: 0,
     failed: 0,
+    // Leads a create limit held back. Nothing was written for them, so the
+    // next run will pick them up unchanged.
+    withheld: 0,
     // Jobs that were created but could not be stamped for dedup.
     unstamped: [],
   };
@@ -130,7 +142,8 @@ async function main() {
   console.log(
     `${stats.posts} post(s) read, ${stats.leads} lead(s) found, ` +
       `${stats.duplicates} re-posted, ${stats.skipped} already in AccuLynx, ` +
-      `${stats.created} created, ${stats.failed} failed`
+      `${stats.created} created, ${stats.failed} failed` +
+      (stats.withheld > 0 ? `, ${stats.withheld} held back by SYNC_MAX_CREATES=${MAX_CREATES}` : '')
   );
 
   if (stats.unstamped.length > 0) {
@@ -219,6 +232,12 @@ async function handleLead({ lead, post, channel, reference, stats, department })
     console.log(`      notes     ${notes.split('\n')[0]}...`);
     reportHistory(history);
     reportAssignment(planAssignment({ lead, department, history }));
+    return;
+  }
+
+  if (MAX_CREATES > 0 && stats.created >= MAX_CREATES) {
+    stats.withheld += 1;
+    console.log(`  LIMIT   ${who} — held back, ${MAX_CREATES} creation(s) already made this run`);
     return;
   }
 

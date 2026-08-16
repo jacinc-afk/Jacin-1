@@ -19,6 +19,13 @@
 // Rules name people rather than IDs on purpose: the same name resolves to a
 // different ID in each company, so the rule stays correct wherever it runs and
 // the lookup happens against the right company.
+//
+// The `users` maps below are documentation, not the source of truth. Writes
+// resolve a name against the live /users list of whichever company is being
+// written to, so a person joining or leaving does not need an edit here, and a
+// run against Testing assigns to the Testing copy of that person rather than
+// to a stranger holding the same GUID. Confirmed correct by src/company-map.js
+// — every one of these matches what its company returns.
 export const REROOF = {
   key: 'reroof',
   company: 'SeaBreeze Roofing REROOF Department',

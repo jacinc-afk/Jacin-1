@@ -94,9 +94,19 @@ Every one of these was found by running it and reading the error.
 | Contact search returns phone numbers | Returns `{id, _link}`. Expand the contact for digits |
 | `GET /jobs/{id}` returns a job | Not unassigned ones — exactly the leads that matter |
 | `POST /jobs/{id}/external-references` | The job ID goes in the **body** |
+| Assignment body mirrors the GET's `{ user: { id } }` | `{ id }`, flat, holding the *user's* GUID |
 
-The last one mattered most: it left a real job in the CRM that dedup could not
-see, so the next run recreated it.
+Two of those mattered most. The external-reference path left a real job in the
+CRM that dedup could not see, so the next run recreated it. And the assignment
+body — `{ user: { id } }` is the reading every other endpoint on this API
+supports, and it answers `400 CompanyUserId: Must be a valid Non Empty Guid`.
+Had it shipped, every lead would have been created and then left unassigned,
+and the failure would have surfaced as a flag, which looks like the system
+working.
+
+Both were caught by probing on purpose rather than by hoping a run exercised
+them. `npm run probe:assignment` still does it, and it reads the value back
+afterwards, because a 2xx only proves the request was accepted.
 
 ## Running it
 

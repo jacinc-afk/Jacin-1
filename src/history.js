@@ -35,6 +35,13 @@ const MAX_CONTACTS_PER_DEPARTMENT = 25;
 const MAX_CONTACTS_INSPECTED = 6;
 const MAX_JOBS_PER_CONTACT = 10;
 
+// How many search results are worth expanding to get their phone numbers.
+// The search returns phone entries as links with no digits in them, so a
+// customer whose only distinguishing evidence is their phone number scores as
+// nothing and gets dropped before anyone looks. Expanding costs one GET each,
+// so it is bounded — surname first, since those are the plausible ones.
+const MAX_CONTACTS_HYDRATED = 10;
+
 /**
  * Candidate scores. A number would invite arithmetic that means nothing; these
  * are named because the caller branches on them, not on how big they are.
@@ -98,6 +105,41 @@ export async function findHistory(lead, { departments = SEARCH_DEPARTMENTS, log 
   return { candidates, errors, searched };
 }
 
+/**
+ * Unassigned leads per department, fetched once per run.
+ *
+ * GET /jobs/{id} will not return them, so without this every lead still
+ * sitting in Lead (Unassigned) is a job we can see the existence of and
+ * nothing more. That is the freshest and most dangerous kind of prior work —
+ * a quote sent three weeks ago has not moved milestone yet.
+ */
+const unassignedCache = new Map();
+
+async function unassignedByContact(client, department, log) {
+  if (unassignedCache.has(department)) return unassignedCache.get(department);
+
+  const byContact = new Map();
+  try {
+    const { jobs, complete } = await client.listUnassignedJobs();
+    if (!complete) {
+      log(`      ${department}: unassigned lead list truncated — older ones not read`);
+    }
+    for (const job of jobs) {
+      for (const contact of job.contacts ?? []) {
+        const contactId = contact?.contact?.id ?? contact?.id;
+        if (!contactId) continue;
+        if (!byContact.has(contactId)) byContact.set(contactId, []);
+        byContact.get(contactId).push(job);
+      }
+    }
+  } catch (err) {
+    log(`      ${department}: unassigned leads not readable — ${err.message}`);
+  }
+
+  unassignedCache.set(department, byContact);
+  return byContact;
+}
+
 async function searchDepartment({ client, department, terms, lead, log }) {
   const byContactId = new Map();
 
@@ -117,8 +159,10 @@ async function searchDepartment({ client, department, terms, lead, log }) {
     }
   }
 
+  const contacts = await hydrate([...byContactId.values()], { client, department, lead, log });
+
   // Score everything, then only pay for job lookups on the ones worth it.
-  const scored = [...byContactId.values()]
+  const scored = contacts
     .map((contact) => ({ contact, ...score(contact, lead) }))
     .filter((entry) => entry.confidence !== null)
     .sort((a, b) => a.rank - b.rank)
@@ -142,12 +186,44 @@ async function searchDepartment({ client, department, terms, lead, log }) {
     // Only { id, _link } comes back, so each job has to be fetched to learn
     // who owns it and what it was. Capped: a contact with 40 jobs is a
     // property manager, and the first few are enough to see the pattern.
+    const unassigned = await unassignedByContact(client, department, log);
+    const unassignedForContact = new Map(
+      (unassigned.get(entry.contact.id) ?? []).map((job) => [job.id, job])
+    );
+
     const details = [];
     for (const job of jobs.slice(0, MAX_JOBS_PER_CONTACT)) {
       if (!job?.id) continue;
       try {
         const full = await client.getJob(job.id);
-        if (!full) continue;
+
+        // GET /jobs/{id} refuses unassigned leads. Fall back to the listing,
+        // which does return them, before concluding there is nothing here.
+        if (full?.unreadable) {
+          const fromListing = unassignedForContact.get(job.id);
+          if (fromListing) {
+            const summary = summariseJob(fromListing);
+            summary.unassigned = true;
+            details.push(summary);
+          } else {
+            // Known to exist, readable by neither route. Reporting it as an
+            // opaque prior job beats dropping it — it is still evidence this
+            // customer has been here.
+            details.push({
+              id: job.id,
+              jobNumber: null,
+              representative: null,
+              milestone: null,
+              workType: null,
+              createdDate: null,
+              address: null,
+              unreadable: true,
+              keys: [],
+            });
+          }
+          continue;
+        }
+
         const summary = summariseJob(full);
         // Who owns this job is the whole point of looking at it — a returning
         // customer whose last job was Francis's should not be handed to Alex
@@ -173,6 +249,45 @@ async function searchDepartment({ client, department, terms, lead, log }) {
   }
 
   return results;
+}
+
+/**
+ * Fill in the phone numbers and email addresses the search left as links.
+ *
+ * Skipped entirely when there is nothing to compare against, or when the
+ * search already returned real digits — the endpoint's description claims it
+ * does, and its schema says otherwise, so this checks rather than assuming
+ * either way.
+ */
+async function hydrate(contacts, { client, department, lead, log }) {
+  if (!lead.phone && !lead.email) return contacts;
+
+  const needsExpanding = (contact) =>
+    [...(contact.phoneNumbers ?? []), ...(contact.emailAddresses ?? [])].some(
+      (entry) => entry && typeof entry === 'object' && !entry.number && !entry.address
+    );
+
+  const targets = contacts.filter(needsExpanding).slice(0, MAX_CONTACTS_HYDRATED);
+  if (targets.length === 0) return contacts;
+
+  if (contacts.filter(needsExpanding).length > MAX_CONTACTS_HYDRATED) {
+    log(
+      `      ${department}: ${contacts.length} name matches, only ${MAX_CONTACTS_HYDRATED} ` +
+        `expanded for phone — a phone-only match beyond that would be missed`
+    );
+  }
+
+  const expanded = new Map();
+  for (const contact of targets) {
+    try {
+      const full = await client.getContact(contact.id);
+      if (full) expanded.set(contact.id, full);
+    } catch (err) {
+      log(`      ${department}: contact ${contact.id} not expanded — ${err.message}`);
+    }
+  }
+
+  return contacts.map((contact) => expanded.get(contact.id) ?? contact);
 }
 
 /**

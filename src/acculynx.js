@@ -249,15 +249,84 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     return res.json;
   }
 
+  /**
+   * One contact, with its phone numbers and email addresses expanded.
+   *
+   * The search response types phoneNumbers and emailAddresses as { id, _link }
+   * — no digits — so a phone match cannot be made from search results alone.
+   * This is how the digits are obtained, and `includes` is what expands them.
+   */
+  async function getContact(contactId) {
+    const res = await request(`/contacts/${contactId}?includes=phoneNumber,emailAddress`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(
+        `[${label}] Contact lookup failed (${res.status}) for ${contactId}: ` +
+          `${truncate(res.body, 200)}`
+      );
+    }
+    return res.json;
+  }
+
+  /**
+   * A job's detail — with one large caveat, documented by AccuLynx:
+   *
+   *   "Unassigned leads or jobs will not be returned."
+   *
+   * So this 404s for exactly the jobs sitting in Lead (Unassigned), which is
+   * where a quote from three weeks ago still is. A 404 here therefore does not
+   * mean "no such job": it usually means an unassigned lead, and treating it
+   * as nothing is how the husband/wife case would quietly fail. The caller is
+   * told which it was, and fills the gap from listUnassignedJobs.
+   */
   async function getJob(jobId) {
     const res = await request(`/jobs/${jobId}`);
-    if (res.status === 404) return null;
+    if (res.status === 404) return { unreadable: true, reason: 'unassigned or missing' };
     if (!res.ok) {
       throw new Error(
         `[${label}] Job lookup failed (${res.status}) for ${jobId}: ${truncate(res.body, 300)}`
       );
     }
     return res.json;
+  }
+
+  /**
+   * Unassigned leads, which GET /jobs/{id} refuses to return one at a time but
+   * GET /jobs will list. `includes=contacts` is what makes it useful — it is
+   * the only way to tie an unassigned lead back to the person on it.
+   *
+   * Fetched once per department per run and cached by the caller, not once per
+   * lead: it is the same list every time.
+   */
+  async function listUnassignedJobs({ sinceDays = 365, pageSize = 50, maxPages = 20 } = {}) {
+    const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const startDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    const jobs = [];
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const res = await request(
+        `/jobs?assignment=unassigned&includes=contacts&pageSize=${pageSize}` +
+          `&pageStartIndex=${page * pageSize}` +
+          `&filterByDate=ModifiedDate&startDate=${startDate}&endDate=${endDate}`
+      );
+
+      if (!res.ok) {
+        throw new Error(
+          `[${label}] Unassigned job listing failed (${res.status}): ${truncate(res.body, 300)}`
+        );
+      }
+
+      const items = res.json?.items ?? [];
+      jobs.push(...items);
+      if (items.length < pageSize) return { jobs, complete: true };
+    }
+
+    // Hitting the cap is not a crisis, but it means the oldest unassigned
+    // leads were not read, and saying so beats implying full coverage.
+    return { jobs, complete: false };
   }
 
   async function createContact(lead) {
@@ -317,8 +386,10 @@ export function createClient({ apiKey, label = 'acculynx' }) {
     findJobForPost,
     stampPostReference,
     searchContacts,
+    getContact,
     getContactJobs,
     getJob,
+    listUnassignedJobs,
     getCompanyRepresentative,
     setCompanyRepresentative,
     createContact,

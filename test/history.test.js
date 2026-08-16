@@ -137,3 +137,12 @@ test('a job summary of an unexpected payload reports nothing rather than guessin
   assert.equal(summary.milestone, null);
   assert.deepEqual(summary.keys, ['id', 'someUnknownField']);
 });
+
+// GET /jobs/{id} is documented as refusing unassigned leads, so a 404 there
+// is reported as unreadable rather than as "no such job" — the difference
+// decides whether a three-week-old quote is seen at all.
+test('an unreadable prior job is still reported as prior work', () => {
+  const summary = summariseJob({ id: 'x' });
+  assert.equal(summary.representative, null);
+  assert.equal(summary.milestone, null);
+});

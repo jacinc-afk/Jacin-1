@@ -11,6 +11,7 @@ import { LEAD_CHANNELS } from './acculynx-ids.js';
 import { createClient } from './acculynx.js';
 import { CHANNEL_DEPARTMENT } from './departments.js';
 import { findHistory, CONFIDENCE } from './history.js';
+import { judgeCandidates, applyVerdicts } from './match-ai.js';
 
 const APPLY = process.env.SYNC_APPLY === 'true';
 const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
@@ -228,12 +229,24 @@ async function handleLead({ lead, post, channel, reference, stats }) {
  * it came back clean.
  */
 async function lookupHistory(lead, who) {
+  const log = (message) => console.log(message);
+
+  let history;
   try {
-    return await findHistory(lead, { log: (message) => console.log(message) });
+    history = await findHistory(lead, { log });
   } catch (err) {
     console.error(`      history search failed for ${who}: ${err.message}`);
     return { candidates: [], errors: [{ department: null, message: err.message }], searched: [] };
   }
+
+  // Claude reads the candidates the search already found — it cannot search,
+  // and it cannot lower a match the data proved. See src/match-ai.js.
+  const { verdicts, skipped } = await judgeCandidates(lead, history.candidates, { log });
+  if (skipped && skipped !== 'no candidates' && skipped !== 'no ANTHROPIC_API_KEY') {
+    log(`      match: not judged — ${skipped}`);
+  }
+
+  return { ...history, candidates: applyVerdicts(history.candidates, verdicts) };
 }
 
 function reportHistory(history) {
@@ -258,6 +271,13 @@ function reportHistory(history) {
       `      history: ${label} in ${candidate.department} — ${candidate.name}` +
         `${candidate.address ? ` (${candidate.address})` : ''} [${candidate.reasons.join('; ')}]`
     );
+    if (candidate.judgment) {
+      const { samePerson, sameProperty, reason, promoted } = candidate.judgment;
+      console.log(
+        `        judged: same person ${samePerson}, same property ${sameProperty}` +
+          `${promoted ? ' (promoted from a name-only match)' : ''} — ${reason}`
+      );
+    }
     for (const job of candidate.jobs) {
       const parts = [job.workType, job.milestone, job.representative && `rep: ${job.representative}`]
         .filter(Boolean)

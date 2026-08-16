@@ -10,5 +10,8 @@
   "scripts": {
     "discover": "node src/discover.js",
     "test": "node --test 'test/**/*.test.js'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1"
   }
 }

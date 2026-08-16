@@ -36,6 +36,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - run: npm ci
 
       - run: npm test
 
@@ -57,6 +60,9 @@ jobs:
           ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
           ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}
           ACCULYNX_KEY_WARRANTIES: ${{ secrets.ACCULYNX_KEY_WARRANTIES }}
+          # Optional. Without it the deterministic matching stands alone and
+          # the judgment step is skipped entirely.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Prints the real field names on prior jobs, so the guessed ones in
           # summariseJob can be replaced with what AccuLynx actually returns.
           SYNC_DUMP_JOB_KEYS: 'true'

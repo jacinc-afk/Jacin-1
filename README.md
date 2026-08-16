@@ -1,130 +1,155 @@
 # RingCentral team chat → AccuLynx leads
 
-Takes the lead intake forms that get posted into RingCentral team chat and
-creates matching leads in AccuLynx.
+Takes the lead intake forms that get posted into RingCentral team chat, creates
+matching leads in AccuLynx, checks whether the customer has been here before,
+and either assigns the lead or asks a human to decide.
 
-**Status: working, tested against a separate AccuLynx test company, not yet
-run against production.** The full chain — read chat, parse intake, create the
-contact, create the job, stamp it for deduplication, skip it on the next run —
-has been exercised end to end with live credentials.
+## Why
 
-## Where the leads come from
+Intake posts a form into a channel. Today somebody reads it and retypes it into
+AccuLynx by hand. A live 30-day window measured **97 posts, 36 of them leads** —
+about nine a week being retyped.
 
-Intake gets posted into private RingCentral **team chat** channels as a
-structured form:
+The retyping is the smaller half. The larger half is the check nobody does:
 
-```
-Customer Name: Gregory Barnett
-Phone: 5613692032
-Email: Barnett.Greg89@gmail.com
-Property Address: 1520 S 24th Ct, Riviera Beach, FL 33404
-Reason for Call: he is looking for a terrace roof
-Problem or Request: he is asking for somebody to reach out for the estimate
-Lead Source: previous client
-Notes: looking for an estimate
-```
+- **Has this customer worked with us before?** A repair customer coming back
+  for a reroof is invisible from inside the reroof company, because each
+  department is a *separate AccuLynx company* with its own database.
+- **Have we already quoted this house?** The husband calling three weeks after
+  the wife got a price, and getting a different number.
 
-The channel determines the work type, so no guessing is needed:
+Doing that by hand means three logins per lead, nine times a week. So it does
+not happen. This does it on every lead.
 
-| Channel | Work type |
+## What it does, in order
+
+1. Reads posts from four RingCentral team channels since a cutoff.
+2. Keeps the ones containing `Customer Name:` — the channels carry ordinary
+   conversation too.
+3. Parses the form: name, phone, email, address, reason, lead source, notes.
+4. Asks AccuLynx whether this post already became a job. If so, skips.
+5. **Searches all three departments** for prior work on this customer.
+6. Optionally has Claude judge whether the candidates are really the same
+   person or the same property.
+7. Creates the contact and the job (a lead *is* a job in the
+   `Lead (Unassigned)` milestone — there is no create-lead endpoint).
+8. Stamps the job with the post ID, so it is never created twice.
+9. **Assigns it**, or **flags it** in a private RingCentral thread.
+
+## Assignment
+
+Sets the job's **Company Representative**.
+
+| Department | Rule |
 | --- | --- |
-| `SB \| Re Roof` | Reroof |
-| `SB \| Sales Leads & Follow-Up` | Reroof |
-| `SB \| Repairs & Active Leaks` | Service / Repair |
+| Reroof | Rotates Jacin → Francis → Alex → Jacin |
+| Repairs | Alex |
+| Warranties | Jacin |
 
-Those channels also carry ordinary conversation, so only posts containing
-`Customer Name:` are treated as leads.
+Two things stop an automatic assignment, both cases where picking a name would
+override a decision a person already made:
 
-## What has actually been verified
+- the intake names a salesperson
+- the customer has prior jobs under a different representative
 
-Checked against RingCentral's and AccuLynx's own published specs, not assumed:
+Those get flagged instead. A prior job under whoever is up anyway is not a
+conflict, and neither is a prior job with nobody on it.
 
-**RingCentral**
+**The rotation pointer moves only on a real assignment.** A flagged lead does
+not consume anyone's turn — the rotation exists to be fair, and skipping
+someone because a lead was ambiguous is not fair to them. A lead that is
+assigned and then dies does not give the turn back.
 
-- Team chat is the Team Messaging API (`/team-messaging/v1/...`), a different
-  system from the message store that holds voicemail, SMS and fax.
-- The required app scope is **`TeamMessaging`** (legacy name `Glip`).
-  `ReadMessages` is the message store and is the wrong scope here.
-- An app scope alone is not sufficient: the user whose JWT is used must also
-  hold a role with the matching user permission.
-- Real-time delivery is possible — webhook subscriptions support the
-  `/team-messaging/v1/posts` event filter, emitting `PostAdded`.
+The pointer lives in `state/rotation.json` and is meant to be edited by hand
+when that is the right answer.
 
-**AccuLynx** (API V2, `https://api.acculynx.com/api/v2`, bearer auth)
+## What the history search can and cannot find
 
-- There is no create-lead endpoint. A lead is a **job** created in the
-  `Lead (Unassigned)` milestone via `POST /jobs`.
-- `POST /jobs` requires `contact: { id }` — a reference to an existing
-  contact. The contact has to be created first via `POST /contacts`.
-- ID types are not uniform. `workType.id` and `jobCategory.id` are
-  **integers**; `leadSource.id` and `tradeTypes[].id` are **UUIDs**.
-- Addresses differ between the two endpoints. `POST /contacts` takes
-  `state: { id: <int> }` and `country: { id: <int> }`; `POST /jobs` takes
-  `state: "FL"` and `country: "US"` as plain strings.
-- `locationAddress` is all-or-nothing: supply the object and `street1`,
-  `city`, `state`, `country` and `zipCode` are all required.
-- Phone numbers must be exactly 10 digits (`^\d{10}$`) — no spaces, dashes,
-  parentheses or country code.
-- `notes` is capped at 1000 characters.
-- Writes are rate limited (`company-write:hourly`, `company-write:daily`) and
-  return 429 with `Retry-After`.
+`POST /contacts/search` matches on first name, last name and company name.
+**Phone is not a search criterion, and neither is address.** So the search goes
+out by surname, and the phone and address that come back are used to *confirm
+or reject* a match rather than to find one.
+
+| Case | Found |
+| --- | --- |
+| Same surname, different first name | yes |
+| Same person, name spelled differently | yes |
+| Same phone, different name | yes — via expansion, bounded to 10 per department |
+| **Same house, different surname** | **no** |
+
+That last row is a real gap and it is documented in `src/history.js` rather
+than papered over. Closing it needs a locally-built address index; it has not
+been built, because the flags this produces will show how often it actually
+matters.
+
+## Things AccuLynx's documentation gets wrong
+
+Every one of these was found by running it and reading the error.
+
+| Documented | Actually |
+| --- | --- |
+| `startDate` is a `date-time`, e.g. `2023-01-01T00:00:00Z` | Rejected. Wants `YYYY-MM-DD` |
+| `POST /leads` creates a lead | No such endpoint. A lead is a job |
+| operationIds suggest paths | They do not. Paths are kebab-case and grouped differently |
+| Contact search returns phone numbers | Returns `{id, _link}`. Expand the contact for digits |
+| `GET /jobs/{id}` returns a job | Not unassigned ones — exactly the leads that matter |
+| `POST /jobs/{id}/external-references` | The job ID goes in the **body** |
+
+The last one mattered most: it left a real job in the CRM that dedup could not
+see, so the next run recreated it.
 
 ## Running it
 
-From the Actions tab, **Sync leads**:
+Everything runs in GitHub Actions, because this environment cannot reach
+`api.acculynx.com`.
 
-| Input | Meaning |
+| Workflow | What it does |
 | --- | --- |
-| `apply` | `false` (default) prints what would be created and writes nothing |
-| `lookback_days` | how far back to read chat |
-| `target` | `test` (default) or `production` — which AccuLynx company to write to |
+| **Sync leads** | The thing itself. Dry run unless `apply` is ticked |
+| **Discover AccuLynx IDs** | Read-only. Dumps the IDs a company uses |
+| **Discover RingCentral** | Read-only. Lists chats and checks the lead channels |
+| **Check key exposure** | Which stored key, if any, matches a given fingerprint |
 
-Both defaults are the safe ones. Writing to production takes two deliberate
-changes, not one.
+`Sync leads` defaults to a **dry run**, which prints every lead with its
+history and the assignment it would make, and writes nothing. `max_creates`
+caps how many leads one run may create — worth setting to 3 the first time it
+points at a live company.
 
-An API key is bound to a single AccuLynx company, so the test company has its
-own key in `ACCULYNX_API_KEY_TEST`. Contact types, work types and job
-categories came back identical from both companies — they are AccuLynx system
-defaults — so a test run exercises the production mapping for everything
-except lead sources, which are configured per company and held separately.
+## Secrets
 
-## Deduplication
+| Secret | For |
+| --- | --- |
+| `RC_CLIENT_ID`, `RC_CLIENT_SECRET`, `RC_JWT` | RingCentral. The JWT acts as the person who minted it, so it only sees channels they belong to |
+| `ACCULYNX_KEY_REROOF` | Reroof company |
+| `ACCULYNX_KEY_SERVICE` | Service company |
+| `ACCULYNX_KEY_WARRANTIES` | Warranties company |
+| `ACCULYNX_API_KEY_TEST` | Testing company |
+| `ANTHROPIC_API_KEY` | Optional. Without it, the match judgment is skipped and the deterministic matching stands alone |
+| `RC_FLAG_CHAT_ID` | Optional. Overrides where flags are posted |
 
-Each job is stamped with the RingCentral post that produced it, via
-`POST /jobs/external-references`, and every run asks AccuLynx whether a post
-already became a job before creating anything. The CRM holds the leads, so it
-is the honest place to ask — a tracker kept in this repo could drift from
-reality, and drift means duplicate customer records.
+An API key is bound to **one** AccuLynx company. Every ID behind it — users,
+lead sources — is scoped to that company, and the same person has a different
+user GUID in each. Nothing is portable between them.
 
-Two failure modes are handled deliberately:
+## Layout
 
-- **A failed lookup skips the lead** rather than creating it. Failing open
-  would duplicate a lead already in the CRM.
-- **A job created but not stamped** is reported loudly with its ID, because it
-  is real in AccuLynx yet invisible to dedup and would be recreated on the
-  next run.
+```
+src/parse-intake.js    the intake form -> a lead
+src/history.js         has this customer been here before
+src/match-ai.js        Claude judging the candidates the search found
+src/rotation.js        whose turn it is, and when to flag instead
+src/acculynx.js        API client, one per company key
+src/sync.js            the orchestrator
+src/discover*.js       read-only ID discovery
+```
 
-Separately, intake re-posts a lead while chasing it, so the same customer can
-appear in several posts days apart. External references dedup by post, not by
-person, so leads are also matched on phone plus surname within a run.
+## Tests
 
-## Still to do
+```
+npm test
+```
 
-- Run against production.
-- Decide polling versus webhooks. Polling runs free on a schedule; webhooks
-  are near-instant but need somewhere to receive them, which a scheduled
-  Action cannot provide. RingCentral's per-channel Zapier add-in could bridge
-  that.
-- Optionally assign each lead an owner by department — leads currently land in
-  Lead (Unassigned) regardless of which channel they came from.
-
-## Known gaps
-
-- Intake posts do not always fill every field — `Urgency`, `Assigned To` and
-  `Best Callback Time` are frequently blank.
-- Two different customers were seen sharing one phone number in intake, which
-  would produce uncallable leads. Worth checking where that number comes from
-  before automating.
-- Customers who call and hang up without leaving a voicemail never reach team
-  chat at all. They exist only in the RingCentral call log, which nothing here
-  reads.
+51 tests, no dependencies beyond the Anthropic SDK. The fixtures are real posts
+from the channels, and they have caught real defects — an option row in the
+template being absorbed into the field above it, and RingCentral rewriting
+email addresses as markdown autolinks that AccuLynx then rejects.

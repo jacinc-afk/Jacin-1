@@ -105,7 +105,13 @@ jobs:
         # Only after a real apply run, and only when it actually moved. A dry
         # run must leave no trace, and an unchanged file must not produce an
         # empty commit on every run.
-        if: ${{ inputs.apply }}
+        #
+        # A scheduled run has no inputs, so `inputs.apply` alone is empty and
+        # therefore false — this step was being skipped on exactly the runs
+        # that matter. The pointer would have stayed at zero forever and every
+        # reroof lead would have gone to the first person in the rotation, with
+        # nothing in the output to say so.
+        if: ${{ github.event_name == 'schedule' || inputs.apply }}
         run: |
           if git diff --quiet -- state/rotation.json; then
             echo "Rotation unchanged; nothing to commit."

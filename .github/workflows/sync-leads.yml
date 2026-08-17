@@ -3,6 +3,17 @@ name: Sync leads
 # Defaults to a dry run. Creating records in a live CRM is not something to do
 # by accident, so writing requires explicitly setting apply to true.
 on:
+  # Every 20 minutes through the working day, Florida time. A lead posted at
+  # 9:05 is in AccuLynx and assigned before 9:30, which is the point — a lead
+  # that sits until someone remembers to press a button is the problem this
+  # replaces.
+  #
+  # Cron here is UTC. 11:00-23:00 UTC covers 7am-7pm during daylight time and
+  # 6am-6pm during standard time, so the working day is covered year round
+  # without chasing the clock change. Monday to Saturday.
+  schedule:
+    - cron: '*/20 11-23 * * 1-6'
+
   workflow_dispatch:
     inputs:
       apply:
@@ -18,9 +29,9 @@ on:
         type: string
         default: '0'
       target:
-        description: 'Which AccuLynx company to write to'
+        description: 'Where to write. live = each lead to its own department'
         type: choice
-        options: [test, reroof, service, warranties]
+        options: [test, live, reroof, service, warranties]
         default: test
 
 permissions:
@@ -29,7 +40,9 @@ permissions:
   contents: write
 
 concurrency:
-  # Two runs at once could both see a lead as new and create it twice.
+  # Two runs at once could both see a lead as new and create it twice. A
+  # scheduled run every 20 minutes makes this load-bearing rather than
+  # theoretical: a slow run must finish before the next one starts.
   group: sync-leads
   cancel-in-progress: false
 
@@ -54,10 +67,17 @@ jobs:
       - name: Sync
         run: node src/sync.js
         env:
-          SYNC_APPLY: ${{ inputs.apply }}
-          SYNC_LOOKBACK_DAYS: ${{ inputs.lookback_days }}
-          SYNC_MAX_CREATES: ${{ inputs.max_creates }}
-          ACCULYNX_TARGET: ${{ inputs.target }}
+          # A scheduled run has no inputs, so its settings are spelled out
+          # here rather than left to fall through to a default. Writing this as
+          # `inputs.apply || 'true'` would be a trap: GitHub treats the boolean
+          # false as falsy, so a manual dry run would silently become an apply.
+          SYNC_APPLY: ${{ github.event_name == 'schedule' && 'true' || inputs.apply }}
+          # Twenty minutes of new posts, with two days of overlap so a few
+          # hours of failed runs — or a GitHub outage — costs nothing. Anything
+          # already synced is skipped by its dedup stamp.
+          SYNC_LOOKBACK_DAYS: ${{ github.event_name == 'schedule' && '2' || inputs.lookback_days }}
+          SYNC_MAX_CREATES: ${{ github.event_name == 'schedule' && '0' || inputs.max_creates }}
+          ACCULYNX_TARGET: ${{ github.event_name == 'schedule' && 'live' || inputs.target }}
           RC_CLIENT_ID: ${{ secrets.RC_CLIENT_ID }}
           RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}
           RC_JWT: ${{ secrets.RC_JWT }}

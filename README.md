@@ -120,10 +120,32 @@ Everything runs in GitHub Actions, because this environment cannot reach
 | **Discover RingCentral** | Read-only. Lists chats and checks the lead channels |
 | **Check key exposure** | Which stored key, if any, matches a given fingerprint |
 
-`Sync leads` defaults to a **dry run**, which prints every lead with its
-history and the assignment it would make, and writes nothing. `max_creates`
-caps how many leads one run may create — worth setting to 3 the first time it
-points at a live company.
+### The schedule
+
+`Sync leads` runs itself **every 20 minutes, 11:00–23:00 UTC, Monday to
+Saturday** — which is roughly 7am to 7pm in Florida in summer and 6am to 6pm
+in winter, so the working day is covered without chasing the clock change. A
+lead posted at 9:05 is in AccuLynx and assigned before 9:30.
+
+**GitHub only runs scheduled workflows from the default branch.** Until this is
+merged to `main`, the schedule does not exist and nothing fires on its own.
+
+A scheduled run applies for real, targets `live`, and looks back two days. The
+two days are deliberate overlap: a few hours of failed runs, or a GitHub
+outage, costs nothing because anything already synced is skipped by its dedup
+stamp. Manual runs still default to a **dry run**, which prints every lead with
+its history and the assignment it would make, and writes nothing.
+
+`max_creates` caps how many leads one run may create — worth setting to 3 the
+first time it points at a live company.
+
+`target` is where leads go:
+
+| target | Effect |
+| --- | --- |
+| `live` | Each lead goes to its own department's company. What the schedule uses |
+| `test` | Everything goes to Testing. One wrong key cannot scatter leads across three live companies |
+| a department name | Everything goes to that one company |
 
 ## Secrets
 

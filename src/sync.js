@@ -27,16 +27,20 @@ const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
 // lost: nothing was stamped for them, so the next run picks them up.
 const MAX_CREATES = Number(process.env.SYNC_MAX_CREATES || 0);
 
-// Which company this run writes into. Leads are still routed per channel, but
-// while the sync is being proved out everything goes to one target so a bad
-// run cannot scatter junk across three live companies.
-const TARGET = process.env.ACCULYNX_TARGET || 'test';
+// Where this run writes.
+//
+//   live  — each lead goes to its own department's company, which is the
+//           point of the channel-to-department mapping and the only setting
+//           that makes sense unattended
+//   test  — everything is forced into the Testing company instead
 //
 // There is deliberately no "production" target. ACCULYNX_API_KEY used to serve
 // as one, and a fingerprint comparison confirmed it holds the identical key to
 // ACCULYNX_KEY_SERVICE — a name that reads like "the live company" while
 // actually reaching Service. Pointing a run at it believing otherwise would
 // file reroof and warranty leads into the Service company.
+const TARGET = process.env.ACCULYNX_TARGET || 'test';
+
 const TARGET_KEY_VARS = {
   test: 'ACCULYNX_API_KEY_TEST',
   reroof: 'ACCULYNX_KEY_REROOF',
@@ -44,15 +48,34 @@ const TARGET_KEY_VARS = {
   warranties: 'ACCULYNX_KEY_WARRANTIES',
 };
 
-function writeClient() {
-  const keyVar = TARGET_KEY_VARS[TARGET];
-  if (!keyVar) throw new Error(`Unknown ACCULYNX_TARGET: ${TARGET}`);
-  const apiKey = process.env[keyVar];
-  if (!apiKey) throw new Error(`Missing ${keyVar} for target "${TARGET}"`);
-  return createClient({ apiKey, label: TARGET });
+// One client per company, made on demand and reused. A client caches that
+// company's user list, so reusing it also stops the same /users call being
+// made once per lead.
+const clients = new Map();
+
+/**
+ * The client that should write this department's leads.
+ *
+ * On a live run that is the department's own company. On a test run it is the
+ * Testing company for every department, which is what makes a test run safe:
+ * one wrong key cannot scatter leads across three live companies.
+ */
+function clientFor(department) {
+  const company = TARGET === 'live' ? department : TARGET;
+
+  if (!clients.has(company)) {
+    const keyVar = TARGET_KEY_VARS[company];
+    if (!keyVar) throw new Error(`No key configured for "${company}"`);
+    const apiKey = process.env[keyVar];
+    if (!apiKey) throw new Error(`Missing ${keyVar}, needed to write ${department} leads`);
+    clients.set(company, createClient({ apiKey, label: company }));
+  }
+  return clients.get(company);
 }
 
-const acculynx = writeClient();
+function companyFor(department) {
+  return TARGET === 'live' ? department : TARGET;
+}
 
 // Whose turn it is, per department. Loaded once and written back at the end,
 // so a crash mid-run cannot leave the rotation half-advanced.
@@ -64,6 +87,11 @@ const flags = [];
 
 async function main() {
   console.log(APPLY ? 'MODE: APPLY — will create records in AccuLynx' : 'MODE: DRY RUN — nothing will be created');
+  console.log(
+    TARGET === 'live'
+      ? 'TARGET: live — each lead goes to its own department'
+      : `TARGET: ${TARGET} — every lead goes to the ${TARGET} company`
+  );
   console.log(`Looking back ${LOOKBACK_DAYS} day(s)\n`);
 
   if (APPLY) await preflight();
@@ -197,6 +225,8 @@ function nameOf(lead) {
 async function handleLead({ lead, post, channel, reference, stats, department }) {
   const who = nameOf(lead);
   const notes = buildNotes(lead, { channel: channel.name, postedAt: post.creationTime });
+
+  const acculynx = clientFor(department);
 
   try {
     const existing = await acculynx.findJobForPost(reference);
@@ -391,6 +421,7 @@ function reportAssignment(decision) {
  * describes, so it becomes one.
  */
 async function assignOrFlag({ lead, who, jobId, department, history, stats }) {
+  const acculynx = clientFor(department);
   const decision = planAssignment({ lead, department, history });
 
   if (!decision.assign) {
@@ -412,9 +443,10 @@ async function assignOrFlag({ lead, who, jobId, department, history, stats }) {
 
   if (!userId) {
     flags.push({ lead, who, jobId, department,
-      reason: `${decision.assign} is not a user in the ${TARGET} company, so the job was left unassigned`,
+      reason: `${decision.assign} is not a user in the ${companyFor(department)} company, ` +
+        'so the job was left unassigned',
       suggested: decision.assign, matches: history.candidates });
-    console.log(`      FLAGGED — ${decision.assign} not found in ${TARGET}`);
+    console.log(`      FLAGGED — ${decision.assign} not found in ${companyFor(department)}`);
     return;
   }
 
@@ -474,15 +506,26 @@ async function postFlags(token) {
  * a live CRM. Better to stop.
  */
 async function preflight() {
-  try {
-    await acculynx.findJobForPost('preflight-check-no-such-post');
-    console.log('Preflight: dedup lookup responding\n');
-  } catch (err) {
-    console.error(`Preflight FAILED: ${err.message}`);
-    console.error('Refusing to create anything without working duplicate detection —');
-    console.error('every run would otherwise recreate every lead.');
-    process.exit(1);
+  // Every company this run could write to, not just one. On a live run that is
+  // three separate CRMs, and a key that expired in one of them must not be
+  // discovered halfway through.
+  const departments = [
+    ...new Set(Object.values(CHANNEL_DEPARTMENT).map((channel) => channel.department)),
+  ];
+
+  for (const department of departments) {
+    const company = companyFor(department);
+    try {
+      await clientFor(department).findJobForPost('preflight-check-no-such-post');
+      console.log(`Preflight: ${company} dedup lookup responding`);
+    } catch (err) {
+      console.error(`Preflight FAILED for ${company}: ${err.message}`);
+      console.error('Refusing to create anything without working duplicate detection —');
+      console.error('every run would otherwise recreate every lead.');
+      process.exit(1);
+    }
   }
+  console.log('');
 }
 
 function formatAddress(a) {

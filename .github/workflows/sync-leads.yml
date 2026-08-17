@@ -76,7 +76,11 @@ jobs:
           # hours of failed runs — or a GitHub outage — costs nothing. Anything
           # already synced is skipped by its dedup stamp.
           SYNC_LOOKBACK_DAYS: ${{ github.event_name == 'schedule' && '2' || inputs.lookback_days }}
-          SYNC_MAX_CREATES: ${{ github.event_name == 'schedule' && '0' || inputs.max_creates }}
+          # Capped even on the schedule. Nothing should ever produce twenty new
+          # leads in twenty minutes, so hitting this means something is wrong —
+          # and the cap turns "wrong" into twenty records instead of hundreds.
+          # Anything held back is picked up by the next run, unchanged.
+          SYNC_MAX_CREATES: ${{ github.event_name == 'schedule' && '20' || inputs.max_creates }}
           ACCULYNX_TARGET: ${{ github.event_name == 'schedule' && 'live' || inputs.target }}
           RC_CLIENT_ID: ${{ secrets.RC_CLIENT_ID }}
           RC_CLIENT_SECRET: ${{ secrets.RC_CLIENT_SECRET }}

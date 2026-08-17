@@ -15,6 +15,18 @@ import { judgeCandidates, applyVerdicts } from './match-ai.js';
 import { assignmentDecision, advance, readPointers, writePointers } from './rotation.js';
 import { postMessage, buildFlagMessage } from './ringcentral-notify.js';
 
+/**
+ * Raised when a job was created but could not be stamped for dedup. It stops
+ * the run rather than being handled, because every further creation would be
+ * made under a dedup scheme that is known to be failing.
+ */
+class UnstampedJobError extends Error {
+  constructor(jobId) {
+    super(`job ${jobId} was created but could not be stamped for deduplication`);
+    this.name = 'UnstampedJobError';
+  }
+}
+
 const APPLY = process.env.SYNC_APPLY === 'true';
 const LOOKBACK_DAYS = Number(process.env.SYNC_LOOKBACK_DAYS || 7);
 
@@ -113,6 +125,8 @@ async function main() {
     withheld: 0,
     // Jobs that were created but could not be stamped for dedup.
     unstamped: [],
+    // Set when an unstamped job stopped the run early.
+    aborted: false,
   };
 
   // Intake re-posts the same lead when chasing it — the same customer appears
@@ -140,7 +154,10 @@ async function main() {
     stats.posts += posts.length;
     console.log(`  ${posts.length} post(s) in the window\n`);
 
+    if (stats.aborted) break;
+
     for (const post of posts) {
+      if (stats.aborted) break;
       const leads = parseIntakePosts(post.text);
       // Posts without "Customer Name:" are ordinary conversation, which all
       // three channels carry.
@@ -161,7 +178,16 @@ async function main() {
         }
         if (key) seen.set(key, post.creationTime);
 
-        await handleLead({ lead, post, channel, reference, stats, department });
+        try {
+          await handleLead({ lead, post, channel, reference, stats, department });
+        } catch (err) {
+          if (!(err instanceof UnstampedJobError)) throw err;
+          // Stop creating. The summary below names the job, and the run exits
+          // non-zero so the failure is not silent.
+          console.error(`\n  STOPPING THIS RUN — ${err.message}`);
+          stats.aborted = true;
+          break;
+        }
       }
     }
   }
@@ -204,7 +230,7 @@ async function main() {
   if (!APPLY && stats.leads > stats.skipped) {
     console.log('\nDry run — set SYNC_APPLY=true to create these for real.');
   }
-  if (stats.failed > 0) process.exitCode = 1;
+  if (stats.failed > 0 || stats.aborted) process.exitCode = 1;
 }
 
 /**
@@ -296,10 +322,12 @@ async function handleLead({ lead, post, channel, reference, stats, department })
     console.error(`  FAILED  ${who} — ${err.message}`);
 
     // A job created but left unstamped is worse than one never created: it is
-    // real in the CRM yet invisible to dedup, so it silently duplicates on the
-    // next run. Count and surface it separately from a clean failure.
+    // real in the CRM yet invisible to dedup, so it duplicates on every
+    // subsequent run. On a twenty-minute schedule that is dozens of copies a
+    // day, so the run stops here rather than creating more of them.
     if (jobId) {
       stats.unstamped.push({ who, jobId, reference });
+      throw new UnstampedJobError(jobId);
     }
   }
 }

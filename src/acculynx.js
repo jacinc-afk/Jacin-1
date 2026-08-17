@@ -130,12 +130,26 @@ export function createClient({ apiKey, label = 'acculynx' }) {
    * rather than repeating on every subsequent run.
    */
   async function stampPostReference(jobId, postId) {
+    // Retried hard, because the cost of giving up is unbounded. An unstamped
+    // job is real in the CRM and invisible to dedup, so on a schedule that
+    // fires every twenty minutes it is recreated roughly forty times a day
+    // until someone notices. A transient 500 must not start that.
+    //
     // The job is identified in the body, not the path — posting to
     // /jobs/{jobId}/external-references returns 404.
-    const res = await request(EXTERNAL_REFS_PATH, {
-      method: 'POST',
-      body: { jobId, source: EXTERNAL_SOURCE, projectId: String(postId) },
-    });
+    let res;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) await sleep(attempt * 2000);
+      res = await request(EXTERNAL_REFS_PATH, {
+        method: 'POST',
+        body: { jobId, source: EXTERNAL_SOURCE, projectId: String(postId) },
+      });
+      if (res.ok) return;
+      // A rejected body will be rejected the same way every time; only retry
+      // what looks like the server having a bad moment.
+      if (res.status < 500 && res.status !== 429) break;
+      console.warn(`  [${label}] stamp attempt ${attempt + 1} failed (${res.status}); retrying`);
+    }
 
     if (!res.ok) {
       // The job already exists at this point, so name it — an unstamped job is

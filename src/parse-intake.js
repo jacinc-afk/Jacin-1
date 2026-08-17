@@ -1,47 +1,85 @@
 // Parses the lead intake forms posted into RingCentral team chat.
 //
-// A post looks like this, and one post may carry several of them:
+// THERE IS MORE THAN ONE TEMPLATE, and that cost real leads.
 //
-//   Customer Name: Gregory Barnett
-//   Phone: 5613692032
-//   Email: Barnett.Greg89@gmail.com
-//   Property Address: 1520 S 24th Ct, Riviera Beach, FL 33404
-//   Reason for Call: he is looking for a terrace roof
-//   Re-roof / Repair / Service / Warranty / Payment
-//   Problem or Request: he is asking for somebody to reach out
-//   Urgency:
-//   Lead Source: previous client
-//   Assigned To:
-//   Best Callback Time:
-//   Notes: looking for an estimate
+// This was written against the Repairs channel's form and gated on the exact
+// string "Customer Name:". The Re Roof channel uses different labels, and
+// every one of its leads was being read as ordinary chatter and skipped in
+// silence — the run log said "0 leads found", which looks identical to a quiet
+// channel. Three shapes are known:
 //
-// Trailing fields are frequently left blank, and the channels these arrive in
-// also carry ordinary conversation, so "Customer Name:" is what marks a post
-// as a lead rather than chatter.
+//   A. Repairs               B. Re Roof, inline        C. Re Roof, stacked
+//   Customer Name: Greg      Name: Nicole Reyes        Name
+//   Phone: 5613692032        Best Callback: 9544711838 Nicole Reyes
+//   Property Address:        Address: 1215 Nw 8th Ct   Best Callback
+//     1520 S 24th Ct,        Zip Code: 33426           9544711838
+//     Riviera Beach,         City: Boynton Beach       Address
+//     FL 33404               State: FL                 1215 Nw 8th Ct
+//   Reason for Call: ...     Reason: ...               Zip Code
+//   Lead Source: ...         Referred By: Neighborhood 33426
+//
+// So: labels are matched through an alias table, the address is assembled from
+// separate parts when it arrives that way, and a label whose value sits on the
+// following line is read too. The gate is no longer one magic string — a post
+// counts as a lead when it has a name AND at least one other intake field,
+// which is what actually distinguishes a form from someone typing "name?".
 
 import { LEAD_SOURCES } from './acculynx-ids.js';
 
-const NAME_LABEL = 'customer name';
-
-// Labels seen in the intake template. The bare
-// "Re-roof / Repair / Service / Warranty / Payment" line carries no colon and
-// so is never read as a field; the work type comes from the channel instead.
+// Every label seen across the three templates, mapped to one field. Aliases
+// are listed rather than guessed at with fuzzy matching: a wrong guess here
+// puts a phone number in the notes and an address nowhere.
 const LABELS = new Map([
   ['customer name', 'name'],
+  ['name', 'name'],
+  ['client name', 'name'],
+
   ['phone', 'phone'],
+  ['phone number', 'phone'],
+  ['best callback', 'phone'],
+  ['callback', 'phone'],
+  ['best callback number', 'phone'],
+
   ['email', 'email'],
+  ['email address', 'email'],
+
+  // One-line form.
   ['property address', 'address'],
+  // Separate-parts form. Assembled below.
+  ['address', 'street'],
+  ['street address', 'street'],
+  ['city', 'city'],
+  ['state', 'state'],
+  ['zip code', 'zip'],
+  ['zip', 'zip'],
+  ['zipcode', 'zip'],
+
   ['reason for call', 'reason'],
+  ['reason', 'reason'],
   ['problem or request', 'problem'],
+  ['problem', 'problem'],
   ['urgency', 'urgency'],
+
   ['lead source', 'leadSource'],
+  ['referred by', 'leadSource'],
+  ['referral source', 'leadSource'],
+  ['how did you hear about us', 'leadSource'],
+
   ['assigned to', 'assignedTo'],
   ['best callback time', 'callbackTime'],
   ['notes', 'notes'],
+
+  // Carried into the notes rather than dropped — "Homeowner: No" changes who
+  // can sign, and "Call Type: New Client" is worth a salesperson knowing.
+  ['call type', 'callType'],
+  ['homeowner', 'homeowner'],
+  ['mailing address', 'mailingAddress'],
 ]);
 
+const NAME_FIELDS = new Set(['name']);
+
 /**
- * Split a post into one entry per "Customer Name:" and parse each.
+ * Split a post into one entry per name field and parse each.
  * Returns [] for posts that carry no intake form at all.
  */
 export function parseIntakePosts(text) {
@@ -52,7 +90,8 @@ export function parseIntakePosts(text) {
   let current = null;
 
   for (const line of lines) {
-    if (labelOf(line) === NAME_LABEL) {
+    const field = fieldOf(line);
+    if (field && NAME_FIELDS.has(field)) {
       if (current) blocks.push(current);
       current = [line];
     } else if (current) {
@@ -61,7 +100,29 @@ export function parseIntakePosts(text) {
   }
   if (current) blocks.push(current);
 
-  return blocks.map((block) => parseLead(block.join('\n')));
+  // A block that names somebody and says nothing else about them is
+  // conversation, not a form.
+  return blocks.map((block) => parseLead(block.join('\n'))).filter((lead) => lead !== null);
+}
+
+/**
+ * Which field this line declares, if any.
+ *
+ * Handles both `Label: value` and a bare `Label` on its own line with the
+ * value beneath it. The bare form is only accepted for labels in the table —
+ * otherwise every line of a customer's description of their leak would look
+ * like a field name.
+ */
+function fieldOf(line) {
+  const colon = line.indexOf(':');
+  if (colon !== -1) {
+    const label = line.slice(0, colon).trim().toLowerCase();
+    if (LABELS.has(label)) return LABELS.get(label);
+    return null;
+  }
+
+  const bare = line.trim().toLowerCase();
+  return LABELS.has(bare) ? LABELS.get(bare) : null;
 }
 
 /**
@@ -80,19 +141,30 @@ export function parseLead(text) {
   let lastKey = null;
 
   for (const line of stripMarkdownLinks(text).split(/\r?\n/)) {
-    const label = labelOf(line);
-    if (label && LABELS.has(label)) {
-      lastKey = LABELS.get(label);
-      fields[lastKey] = line.slice(line.indexOf(':') + 1).trim();
+    const field = fieldOf(line);
+
+    if (field) {
+      lastKey = field;
+      const colon = line.indexOf(':');
+      // A bare label carries no value on its own line; the next line has it.
+      const value = colon === -1 ? '' : line.slice(colon + 1).trim();
+      // "Call Type:| New Client |" — the template's own pipes are not data.
+      fields[field] = value.replace(/^\|\s*|\s*\|$/g, '').trim();
     } else if (lastKey && line.trim() && !isOptionRow(line)) {
-      // A value wrapped onto the following line belongs to the field above it.
-      fields[lastKey] = `${fields[lastKey]} ${line.trim()}`.trim();
+      // Either a wrapped value, or the value under a bare label.
+      fields[lastKey] = `${fields[lastKey] ?? ''} ${line.trim()}`.trim();
     }
   }
 
+  if (!isLead(fields)) return null;
+
   const { firstName, lastName } = splitName(fields.name || '');
   const phone = normalizePhone(fields.phone);
-  const address = parseAddress(fields.address);
+
+  // One-line "Property Address" if present, otherwise assembled from the
+  // separate parts the Re Roof template uses.
+  const rawAddress = fields.address || joinAddressParts(fields);
+  const address = parseAddress(rawAddress);
 
   return {
     firstName,
@@ -102,7 +174,7 @@ export function parseLead(text) {
     rawPhone: fields.phone || null,
     email: (fields.email || '').trim() || null,
     address,
-    rawAddress: fields.address || null,
+    rawAddress: rawAddress || null,
     reason: fields.reason || null,
     problem: fields.problem || null,
     urgency: fields.urgency || null,
@@ -111,13 +183,40 @@ export function parseLead(text) {
     assignedTo: fields.assignedTo || null,
     callbackTime: fields.callbackTime || null,
     notes: fields.notes || null,
+    callType: fields.callType || null,
+    homeowner: fields.homeowner || null,
   };
 }
 
-function labelOf(line) {
-  const colon = line.indexOf(':');
-  if (colon === -1) return null;
-  return line.slice(0, colon).trim().toLowerCase();
+/**
+ * A name plus any other filled-in field from the template.
+ *
+ * Deliberately easy to satisfy. The first version of this required a phone,
+ * email or address, on the reasoning that a lead without contact details is
+ * useless — but that is the wrong trade. A junk record is deleted in five
+ * seconds; a dropped lead is a customer nobody ever calls back, and nothing in
+ * the output would say it happened. This whole file exists because a gate that
+ * was too strict silently ate an entire channel's leads.
+ *
+ * The name alone is still not enough — that would match somebody typing
+ * "Name?" mid-conversation — but one more field of any kind is.
+ */
+function isLead(fields) {
+  if (!(fields.name || '').trim()) return false;
+  return Object.entries(fields).some(([key, value]) => key !== 'name' && (value || '').trim());
+}
+
+/**
+ * Rebuild "street, city, ST zip" from the separate fields the Re Roof template
+ * uses. Returns '' unless all four are present — parseAddress needs a complete
+ * address, and half of one is worse than none because it would be filed under
+ * the wrong property.
+ */
+function joinAddressParts({ street, city, state, zip }) {
+  const parts = [street, city, state, zip].map((part) => (part || '').trim());
+  if (parts.some((part) => !part)) return '';
+  const [streetPart, cityPart, statePart, zipPart] = parts;
+  return `${streetPart}, ${cityPart}, ${statePart} ${zipPart}`;
 }
 
 /**
@@ -244,6 +343,9 @@ export function matchLeadSource(raw) {
     'repeat customer': 'Previous Customer',
     referral: 'Referral',
     'word of mouth': 'Referral',
+    neighborhood: 'Working in the neighborhood',
+    neighbor: 'Working in the neighborhood',
+    'working in the neighborhood': 'Working in the neighborhood',
     google: 'Google Search',
     web: 'Website',
     website: 'Website',
@@ -268,6 +370,10 @@ export function buildNotes(lead, { channel, postedAt } = {}) {
   if (lead.callbackTime) lines.push(`Best callback time: ${lead.callbackTime}`);
   if (lead.assignedTo) lines.push(`Assigned to: ${lead.assignedTo}`);
   if (lead.notes) lines.push(`Notes: ${lead.notes}`);
+  if (lead.callType) lines.push(`Call type: ${lead.callType}`);
+  // "Homeowner: No" changes who is able to sign, so it belongs in front of
+  // whoever picks the lead up.
+  if (lead.homeowner) lines.push(`Homeowner: ${lead.homeowner}`);
 
   // Surface what had to be dropped, so it's visible in AccuLynx rather than
   // lost between here and the CRM.

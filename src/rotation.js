@@ -95,10 +95,10 @@ export function assignmentDecision({ lead, department, pointer = 0, candidates =
 
   const priorReps = new Set();
   for (const candidate of candidates) {
+    if (discounted(candidate)) continue;
     for (const job of candidate.jobs ?? []) {
-      // "unknown user <guid>" means someone is in AccuLynx but not in
-      // departments.js. That is still a real person owning a real job, so it
-      // counts as a conflict rather than being ignored.
+      // A GUID that resolved to nobody is still a real person owning a real
+      // job, so it counts as a conflict rather than being ignored.
       if (job.representative) priorReps.add(job.representative);
     }
   }
@@ -116,6 +116,29 @@ export function assignmentDecision({ lead, department, pointer = 0, candidates =
   }
 
   return { assign: turn, flag: false, reason: null };
+}
+
+/**
+ * Should this candidate be left out of the conflict check?
+ *
+ * Only ever a name-only candidate that the judgment rejected on both counts.
+ * A real run showed why this is needed: a lead from Maria Hernandez in Hobe
+ * Sound matched two other Maria Hernandezes forty miles away, under a
+ * different representative, and that blocked the assignment — even though the
+ * strongest match, on phone and email and address, was under the person it was
+ * going to anyway. Left alone, every common surname flags forever and the
+ * rotation stops working.
+ *
+ * The safety property is kept: a phone, email or address match is never
+ * discounted, whatever the judgment says. Only a candidate matched on name
+ * alone, and only when the judgment says it is neither the same person nor the
+ * same property. Anything unsure still counts as a conflict.
+ */
+function discounted(candidate) {
+  if (candidate?.confidence !== 'weak') return false;
+  const judgment = candidate.judgment;
+  if (!judgment) return false;
+  return judgment.samePerson === 'no' && judgment.sameProperty === 'no';
 }
 
 /**

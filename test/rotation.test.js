@@ -150,3 +150,71 @@ test('an ordinary sentence is not a request', () => {
   assert.equal(requestedSalesperson({ reason: 'roof leaking over the deck' }, REROOF), null);
   assert.equal(requestedSalesperson({}, REROOF), null);
 });
+
+// From a real run: a lead from Maria Hernandez in Hobe Sound matched two other
+// Maria Hernandezes forty miles away under a different rep, and that blocked
+// the assignment — while the strongest match, on phone and email, was under
+// the person it was going to anyway. Left alone, every common surname flags
+// forever and the rotation stops working.
+test('a name-only candidate the judgment rejected does not block assignment', () => {
+  const decision = assignmentDecision({
+    lead: {},
+    department: REROOF,
+    pointer: 0,
+    candidates: [
+      {
+        confidence: 'weak',
+        judgment: { samePerson: 'no', sameProperty: 'no', reason: 'different county' },
+        jobs: [{ representative: 'Francis Ferrer' }],
+      },
+    ],
+  });
+  assert.equal(decision.assign, 'Jacin Carreiro');
+  assert.equal(decision.flag, false);
+});
+
+// The safety property: the judgment can never talk us out of a proven match.
+test('a proven match still blocks assignment even if the judgment disagrees', () => {
+  for (const confidence of ['strong', 'property']) {
+    const decision = assignmentDecision({
+      lead: {},
+      department: REROOF,
+      pointer: 0,
+      candidates: [
+        {
+          confidence,
+          judgment: { samePerson: 'no', sameProperty: 'no', reason: 'not the same' },
+          jobs: [{ representative: 'Francis Ferrer' }],
+        },
+      ],
+    });
+    assert.equal(decision.flag, true, `${confidence} should still flag`);
+  }
+});
+
+test('an unsure judgment still counts as a conflict', () => {
+  const decision = assignmentDecision({
+    lead: {},
+    department: REROOF,
+    pointer: 0,
+    candidates: [
+      {
+        confidence: 'weak',
+        judgment: { samePerson: 'unsure', sameProperty: 'no', reason: 'cannot tell' },
+        jobs: [{ representative: 'Francis Ferrer' }],
+      },
+    ],
+  });
+  assert.equal(decision.flag, true);
+});
+
+// With no judgment at all — no ANTHROPIC_API_KEY — nothing is discounted.
+test('without a judgment every candidate still counts', () => {
+  const decision = assignmentDecision({
+    lead: {},
+    department: REROOF,
+    pointer: 0,
+    candidates: [{ confidence: 'weak', jobs: [{ representative: 'Francis Ferrer' }] }],
+  });
+  assert.equal(decision.flag, true);
+});

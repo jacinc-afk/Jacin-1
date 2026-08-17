@@ -1,8 +1,8 @@
 // Read-only discovery script for AccuLynx API V2.
 //
-// Creating a job requires referencing your company's own IDs (lead sources,
+// Creating a job requires referencing this company's own IDs (lead sources,
 // work types, job categories, trade types, contact types). Those IDs are
-// account-specific, so they have to be read out of your account before any
+// account-specific, so they have to be read out of the account before any
 // lead-creation code can be written against them.
 //
 // This script only issues GET requests. It creates nothing and changes
@@ -10,97 +10,298 @@
 //
 //   ACCULYNX_API_KEY=xxxxx node src/discover.js
 //
-// Endpoint paths below are INFERRED from the operationIds in AccuLynx's
-// OpenAPI index (e.g. getCompanySettingsJobSettingsWorkTypes ->
-// /companysettings/jobsettings/worktypes). They are not confirmed. Rather
-// than assume, the script tries each candidate and reports exactly which one
-// answered, so a wrong guess shows up as a clean 404 instead of silently
-// producing nothing.
+// The first run of this returned 404 on every path, including ones taken
+// straight from AccuLynx's own docs. Six wrong guesses in a row points at
+// something systemic rather than six bad paths, so the script now starts with
+// a control phase: it calls paths that appear verbatim in the published
+// examples. If those 404 too, the problem is the key, the base URL or the
+// host — not the guessed paths — and there is no point reading further down
+// the output.
 
 const BASE = process.env.ACCULYNX_API_BASE || 'https://api.acculynx.com/api/v2';
 
+// Each department is a separate AccuLynx company, and an API key is bound to
+// one company, so each needs its own key. IDs — lead sources especially — are
+// scoped to the company behind the key.
+const KEY_VARS = {
+  reroof: 'ACCULYNX_KEY_REROOF',
+  service: 'ACCULYNX_KEY_SERVICE',
+  warranties: 'ACCULYNX_KEY_WARRANTIES',
+  newconstruction: 'ACCULYNX_KEY_NEWCONSTRUCTION',
+  test: 'ACCULYNX_API_KEY_TEST',
+  // ACCULYNX_API_KEY is intentionally absent. It holds the same key as
+  // ACCULYNX_KEY_SERVICE — proven by identical SHA-256 fingerprints — under a
+  // name that suggests otherwise.
+};
+
+// Paths quoted directly in AccuLynx's published documentation, not inferred.
+// These are the control: they are expected to work, so a failure here is
+// diagnostic rather than just a miss.
+const CONTROLS = [
+  { path: '/jobs?pageSize=1', note: 'documented as /jobs?pageSize=25&...' },
+  { path: '/contacts?pageSize=1', note: 'documented as Get Contacts' },
+  { path: '/ping', note: 'documented as Check if the API Server Is Responsive' },
+];
+
+// Which company does this key actually reach? With five companies and a key
+// per company, inferring it from the user list is guesswork — better to ask.
+const IDENTITY_PATHS = ['/company-settings', '/companysettings', '/company'];
+
+// The published path for Get Contact Types is /contacts/contact-types, so
+// multi-word segments are kebab-cased — the earlier round of guesses ran them
+// together and missed every time. Candidates below apply that convention.
+//
+// Because routing resolves before authentication, an invalid key still tells
+// paths apart: a route that exists answers 401, one that does not answers 404.
+// So this survey is meaningful even before the key is fixed.
 const LOOKUPS = [
   {
     label: 'Contact Types  (GUID -> required by POST /contacts)',
-    candidates: ['/contacts/types', '/contacttypes'],
+    // Confirmed from the published spec.
+    candidates: ['/contacts/contact-types'],
   },
   {
-    label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
-    candidates: [
-      '/companysettings/leadsources',
-      '/leadsources',
-      '/companysettings/jobsettings/leadsources',
-    ],
-  },
-  {
+    // Work types live under job-file-settings, not job-settings, despite the
+    // operationId reading getCompanySettingsJobSettingsWorkTypes. The
+    // operationIds are not a reliable guide to the paths, so the siblings
+    // below are derived from this confirmed one rather than from their names.
     label: 'Work Types     (INTEGER -> jobPost.workType.id)',
-    candidates: ['/companysettings/jobsettings/worktypes'],
+    candidates: ['/company-settings/job-file-settings/work-types'],
   },
   {
     label: 'Job Categories (INTEGER -> jobPost.jobCategory.id)',
-    candidates: ['/companysettings/jobsettings/jobcategories'],
+    candidates: [
+      '/company-settings/job-file-settings/job-categories',
+      '/company-settings/job-file-settings/categories',
+    ],
   },
   {
     label: 'Trade Types    (GUID -> jobPost.tradeTypes[].id)',
-    candidates: ['/companysettings/jobsettings/tradetypes'],
+    candidates: [
+      '/company-settings/job-file-settings/trade-types',
+      '/company-settings/job-file-settings/trades',
+    ],
+  },
+  {
+    // Lead sources sit under /company-settings/leads/, not job-file-settings
+    // — a third prefix shape across these five lookups. Lead sources can also
+    // nest: each may carry a `children` array of sub-sources.
+    label: 'Lead Sources   (GUID -> jobPost.leadSource.id)',
+    candidates: ['/company-settings/leads/lead-sources'],
+  },
+  {
+    // Needed to assign reroof leads in rotation — assignment references a
+    // user ID, not a name.
+    label: 'Users          (for lead assignment)',
+    candidates: ['/users?pageSize=100', '/users'],
+  },
+  {
+    // Dedup depends on this: each job gets stamped with the RingCentral post
+    // that produced it, and the sync asks AccuLynx whether a post has already
+    // become a job rather than tracking that itself. A wrong path here means
+    // duplicate leads, so the path is probed rather than assumed. `source` is
+    // documented as mandatory, so anything other than 404 means the route
+    // exists.
+    label: 'Job External Refs (dedup — any non-404 confirms the path)',
+    candidates: [
+      '/jobs/external-references?source=probe',
+      '/jobs/externalreferences?source=probe',
+      '/job-external-references?source=probe',
+      '/jobs/external-reference?source=probe',
+    ],
   },
 ];
 
 async function main() {
-  const apiKey = process.env.ACCULYNX_API_KEY;
+  // An API key is bound to one AccuLynx company, so the test company has its
+  // own key and its own set of IDs behind it.
+  const target = process.env.ACCULYNX_TARGET || 'test';
+  const keyVar = KEY_VARS[target];
+
+  if (!keyVar) {
+    console.error(`Unknown target "${target}". Known: ${Object.keys(KEY_VARS).join(', ')}`);
+    process.exit(1);
+  }
+
+  const apiKey = process.env[keyVar];
   if (!apiKey) {
-    console.error('Missing ACCULYNX_API_KEY. Get one at https://my.acculynx.com/apikeys');
+    console.error(`Missing ${keyVar}. Get one at https://my.acculynx.com/apikeys`);
     process.exit(1);
   }
 
-  // Confirm the key works before anything else, so a bad key reads as a bad
-  // key rather than as five mysterious failures.
-  const ping = await get('/ping', apiKey);
-  if (ping.status === 401) {
-    console.error('API key rejected (401). Check the key at https://my.acculynx.com/apikeys');
-    process.exit(1);
-  }
-  console.log(`ping -> ${ping.status}\n`);
+  // Report the shape of the key without revealing it. A key that is far
+  // shorter or longer than expected, or that has picked up whitespace or
+  // quotes from a copy-paste, shows up here rather than as a mystery 404.
+  console.log(`target: ${target} (${keyVar})`);
+  console.log(`base: ${BASE}`);
+  console.log(`key:  length ${apiKey.length}, prefix "${apiKey.slice(0, 5)}...", ` +
+    `${/\s/.test(apiKey) ? 'CONTAINS WHITESPACE' : 'no whitespace'}, ` +
+    `${/^["']|["']$/.test(apiKey) ? 'WRAPPED IN QUOTES' : 'unquoted'}\n`);
 
-  for (const lookup of LOOKUPS) {
-    console.log('='.repeat(70));
-    console.log(lookup.label);
-
-    let found = false;
-    for (const path of lookup.candidates) {
-      const res = await get(path, apiKey);
-
-      if (res.status === 404) {
-        console.log(`  ${path} -> 404 (wrong path guess, trying next)`);
-        continue;
-      }
-      if (res.status === 429) {
-        console.log(`  ${path} -> 429 rate limited; retry after ${res.retryAfter}s`);
-        found = true;
-        break;
-      }
-      if (res.status !== 200) {
-        console.log(`  ${path} -> ${res.status} ${truncate(res.body, 200)}`);
-        found = true;
-        break;
-      }
-
-      console.log(`  ${path} -> 200`);
-      printItems(res.json);
-      found = true;
+  console.log('#'.repeat(70));
+  console.log('WHICH COMPANY DOES THIS KEY REACH?');
+  console.log('#'.repeat(70));
+  for (const path of IDENTITY_PATHS) {
+    const res = await get(path, apiKey);
+    console.log(`  ${path} -> ${res.status}`);
+    if (res.status === 200) {
+      console.log(`    ${truncate(JSON.stringify(res.json), 600)}`);
       break;
     }
+  }
 
-    if (!found) {
-      console.log('  !! every candidate path 404ed - need the real path from the docs');
+  console.log(`\n${'#'.repeat(70)}`);
+  console.log('CONTROL - documented paths, expected to work');
+  console.log('#'.repeat(70));
+
+  let anyControlWorked = false;
+  for (const control of CONTROLS) {
+    const res = await get(control.path, apiKey);
+    console.log(`\n  GET ${control.path}  (${control.note})`);
+    console.log(`    -> ${res.status}`);
+    report(res);
+    if (res.status === 200) anyControlWorked = true;
+  }
+
+  if (!anyControlWorked) {
+    console.log(`\n${'!'.repeat(70)}`);
+    console.log('Every documented path failed. The guessed paths below are not');
+    console.log('the problem - the key, the base URL or the host is. Read the');
+    console.log('control output above, not the lookups.');
+    console.log('!'.repeat(70));
+  }
+
+  console.log(`\n${'#'.repeat(70)}`);
+  console.log('LOOKUPS - inferred paths');
+  console.log('#'.repeat(70));
+
+  for (const lookup of LOOKUPS) {
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(lookup.label);
+
+    for (const path of lookup.candidates) {
+      const res = await get(path, apiKey);
+      console.log(`  ${path} -> ${res.status}`);
+
+      if (res.status === 200) {
+        printItems(res.json);
+        break;
+      }
+
+      // 401 means the route matched and only the credential was rejected, so
+      // the path is right even though no data came back. Stop here rather
+      // than trying the remaining candidates.
+      if (res.status === 401) {
+        console.log('    PATH CONFIRMED (401 = route exists, key rejected)');
+        break;
+      }
+
+      report(res, '  ');
+      if (res.status === 429) break;
     }
-    console.log();
+  }
+
+  await probeRepresentative(apiKey);
+}
+
+// Setting the Company Representative is a write, and the first attempt at
+// finding its path proved nothing. Probing with a non-UUID job ID gave 404s
+// carrying "jobId: The value 'probe' is not valid." — which looked like a
+// route match until the same message came back from a path known to be wrong
+// (/jobs/externalreferences). It is GET /jobs/{jobId} complaining, not the
+// probed route, so those 404s meant nothing either way.
+//
+// A real job ID removes the ambiguity: with a job that exists, 404 can only be
+// the route, not the ID. And the job payload itself is worth reading first —
+// if it carries the representative, its field name tells us what to send, and
+// if POST /jobs already accepts it, there is no second write to find at all.
+async function probeRepresentative(apiKey) {
+  console.log(`\n${'#'.repeat(70)}`);
+  console.log('COMPANY REPRESENTATIVE - how is it set?');
+  console.log('#'.repeat(70));
+
+  const list = await get('/jobs?pageSize=1', apiKey);
+  const jobId = (list.json?.items ?? [])[0]?.id;
+
+  if (!jobId) {
+    console.log('  No job available to probe with — this company has no jobs.');
+    console.log('  Create one in AccuLynx and re-run, or probe against a company');
+    console.log('  that has some. Probing with a made-up ID proves nothing here.');
+    return;
+  }
+
+  const job = await get(`/jobs/${jobId}`, apiKey);
+  console.log(`\n  GET /jobs/{id} -> ${job.status}`);
+  if (job.status === 200 && job.json) {
+    // The whole payload is too big to read in a log, and the field names are
+    // the only part that matters.
+    console.log(`    fields: ${Object.keys(job.json).sort().join(', ')}`);
+    for (const key of Object.keys(job.json)) {
+      if (/rep|assign|owner|sales/i.test(key)) {
+        console.log(`    ${key}: ${truncate(JSON.stringify(job.json[key]), 200)}`);
+      }
+    }
+  } else {
+    report(job);
+  }
+
+  // CONFIRMED, from a live 200 against this path:
+  //
+  //   GET /jobs/{id}/representatives/company
+  //     -> { id, type: "CompanyRepresentative",
+  //          user: { id, _link }, _link }
+  //
+  // /jobs/{id}/representatives is the same thing as a collection.
+  // company-representative, assignments and users are all 404.
+  const path = `/jobs/${jobId}/representatives/company`;
+
+  console.log('');
+  const res = await get(path, apiKey);
+  console.log(`  GET /jobs/{id}/representatives/company -> ${res.status}`);
+  if (res.status === 200) {
+    console.log(`    ${truncate(JSON.stringify(res.json), 400)}`);
+  } else {
+    report(res);
+  }
+
+  // Reading it is settled; writing it is not. OPTIONS asks the server which
+  // methods the route accepts, which is the one way to learn PUT vs POST vs
+  // PATCH without actually reassigning a real job to the wrong person.
+  const options = await get(path, apiKey, 'OPTIONS');
+  console.log(`\n  OPTIONS /jobs/{id}/representatives/company -> ${options.status}`);
+  console.log(`    Allow: ${options.allow ?? '(not sent)'}`);
+  if (!options.allow) {
+    console.log('    No Allow header, so the write method is still unknown. Next');
+    console.log('    step is a real write against the Testing company, where');
+    console.log('    reassigning a job costs nothing.');
   }
 }
 
-// Print just id + name for each item, which is all the mapping needs. The
-// shape of these collections isn't documented in the pages read so far, so
-// fall back to raw JSON when the guess at the shape doesn't fit.
+// Show whatever the server said. The previous version swallowed 404 bodies,
+// which is exactly where an explanation would have been.
+function report(res, indent = '    ') {
+  if (res.status === 200) return;
+
+  if (res.json?.title || res.json?.detail) {
+    console.log(`${indent}${res.json.title ?? ''} ${res.json.detail ?? ''}`.trimEnd());
+    if (res.json.traceId) console.log(`${indent}traceId: ${res.json.traceId}`);
+  } else if (res.body) {
+    console.log(`${indent}body: ${truncate(res.body, 300)}`);
+  } else {
+    console.log(`${indent}(empty body)`);
+  }
+
+  // RateLimit-* headers are set by AccuLynx itself, so their presence proves
+  // the request reached the API rather than dying at a CDN or proxy in front
+  // of it. Their absence on a 404 is a strong hint the 404 isn't AccuLynx's.
+  if (res.rateLimitSeen) {
+    console.log(`${indent}(RateLimit headers present - reached AccuLynx)`);
+  }
+  if (res.server) {
+    console.log(`${indent}server: ${res.server}`);
+  }
+}
+
 function printItems(json) {
   const items = json?.items ?? json;
   if (!Array.isArray(items)) {
@@ -113,15 +314,28 @@ function printItems(json) {
   }
   for (const item of items) {
     const id = item?.id ?? '(no id)';
-    const name = item?.name ?? item?.description ?? item?.title ?? '';
-    console.log(`    ${String(id).padEnd(38)} ${name}`);
+    // Users carry first/last rather than a single name field.
+    const name =
+      item?.name ||
+      [item?.firstName, item?.lastName].filter(Boolean).join(' ') ||
+      item?.description ||
+      item?.title ||
+      '';
+    const extra = item?.emailAddress ?? item?.email ?? '';
+    console.log(`    ${String(id).padEnd(38)} ${name}${extra ? `  <${extra}>` : ''}`);
   }
 }
 
-async function get(path, apiKey) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-  });
+async function get(path, apiKey, method = 'GET') {
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    });
+  } catch (err) {
+    return { status: 'NETWORK ERROR', body: err.message, json: null };
+  }
 
   const body = await res.text();
   let json = null;
@@ -133,7 +347,10 @@ async function get(path, apiKey) {
 
   return {
     status: res.status,
+    allow: res.headers.get('allow'),
     retryAfter: res.headers.get('retry-after'),
+    rateLimitSeen: Boolean(res.headers.get('ratelimit-limit') || res.headers.get('ratelimit-policy')),
+    server: res.headers.get('server'),
     body,
     json,
   };

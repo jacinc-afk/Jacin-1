@@ -1,0 +1,32 @@
+name: Check key exposure
+
+# Answers one question: is the API key that got pasted into a chat transcript
+# one of the keys this project stores?
+#
+# It compares SHA-256 fingerprints. No key is printed, and the workflow needs
+# the secrets only to hash them.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compare fingerprints
+        run: node src/check-key-exposure.js
+        env:
+          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
+          ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
+          ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}
+          ACCULYNX_KEY_WARRANTIES: ${{ secrets.ACCULYNX_KEY_WARRANTIES }}
+          ACCULYNX_KEY_NEWCONSTRUCTION: ${{ secrets.ACCULYNX_KEY_NEWCONSTRUCTION }}

@@ -5,7 +5,13 @@ name: Discover AccuLynx IDs
 # them. GET requests only — this workflow creates and changes nothing in
 # AccuLynx.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which AccuLynx company to read IDs from'
+        type: choice
+        options: [test, reroof, service, warranties]
+        default: test
 
 permissions:
   contents: read
@@ -19,8 +25,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - run: npm ci
 
       - name: Read AccuLynx IDs
         run: npm run discover
         env:
-          ACCULYNX_API_KEY: ${{ secrets.ACCULYNX_API_KEY }}
+          ACCULYNX_TARGET: ${{ inputs.target }}
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}
+          ACCULYNX_KEY_REROOF: ${{ secrets.ACCULYNX_KEY_REROOF }}
+          ACCULYNX_KEY_SERVICE: ${{ secrets.ACCULYNX_KEY_SERVICE }}
+          ACCULYNX_KEY_WARRANTIES: ${{ secrets.ACCULYNX_KEY_WARRANTIES }}
+          ACCULYNX_KEY_NEWCONSTRUCTION: ${{ secrets.ACCULYNX_KEY_NEWCONSTRUCTION }}

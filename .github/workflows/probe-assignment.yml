@@ -1,0 +1,28 @@
+name: Probe assignment
+
+# Settles the one thing about assignment that is still inferred: the body of
+# POST /jobs/{id}/representatives/company.
+#
+# This WRITES. It sets a representative on one unassigned lead in the Testing
+# company and reads it back to check it took.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Probe
+        run: node src/probe-assignment.js
+        env:
+          ACCULYNX_TARGET: test
+          ACCULYNX_API_KEY_TEST: ${{ secrets.ACCULYNX_API_KEY_TEST }}

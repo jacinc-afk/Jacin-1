@@ -8,6 +8,13 @@
     "node": ">=18"
   },
   "scripts": {
-    "discover": "node src/discover.js"
+    "discover": "node src/discover.js",
+    "test": "node --test 'test/**/*.test.js'",
+    "probe:assignment": "node src/probe-assignment.js",
+    "map:companies": "node src/company-map.js",
+    "sync": "node src/sync.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1"
   }
 }

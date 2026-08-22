@@ -1,8 +1,10 @@
 // Whose turn is it?
 //
-// Reroof leads rotate Jacin -> Francis -> Alex -> Jacin. Repair leads all go
-// to Alex, warranty leads all go to Jacin — those need no pointer, but they go
-// through the same function so the caller has one rule to follow.
+// Every department currently assigns to Jacin, so nothing uses a pointer right
+// now. The rotation is still implemented and still tested, because turning it
+// back on is a one-line edit in departments.js — reroof was Jacin -> Francis
+// -> Alex -> Jacin, and repairs went to Alex. Fixed and rotating departments
+// go through the same function so the caller has one rule to follow.
 //
 // THE POINTER MOVES ONLY ON AN ACTUAL ASSIGNMENT
 //
@@ -110,7 +112,7 @@ export function assignmentDecision({ lead, department, pointer = 0, candidates =
       flag: true,
       reason:
         `prior work under ${conflicting.join(', ')} — ` +
-        `rotation would hand this to ${turn}`,
+        `this would otherwise go to ${turn}`,
       suggested: conflicting.length === 1 ? conflicting[0] : null,
     };
   }

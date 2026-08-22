@@ -4,18 +4,29 @@ import assert from 'node:assert/strict';
 import { nextAssignee, advance, assignmentDecision, requestedSalesperson } from '../src/rotation.js';
 import { REROOF, SERVICE, WARRANTIES, NEW_CONSTRUCTION } from '../src/departments.js';
 
-test('reroof rotates Jacin, Francis, Alex and back to Jacin', () => {
-  assert.equal(nextAssignee(REROOF, 0), 'Jacin Carreiro');
-  assert.equal(nextAssignee(REROOF, 1), 'Francis Ferrer');
-  assert.equal(nextAssignee(REROOF, 2), 'Alex Patapis');
-  assert.equal(nextAssignee(REROOF, 3), 'Jacin Carreiro');
-});
-
-test('repairs go to Alex and warranties to Jacin, whatever the pointer says', () => {
+// Every department currently points at Jacin. Reroof used to rotate
+// Jacin -> Francis -> Alex; the rotation code is still here and still tested
+// below against a stand-in, so switching back is a one-line edit.
+test('every live department assigns to Jacin, whatever the pointer says', () => {
   for (const pointer of [0, 1, 2, 7]) {
-    assert.equal(nextAssignee(SERVICE, pointer), 'Alex Patapis');
+    assert.equal(nextAssignee(REROOF, pointer), 'Jacin Carreiro');
+    assert.equal(nextAssignee(SERVICE, pointer), 'Jacin Carreiro');
     assert.equal(nextAssignee(WARRANTIES, pointer), 'Jacin Carreiro');
   }
+});
+
+// The rotation machinery itself, exercised against a stand-in department so
+// the test keeps its meaning whoever the live departments point at today.
+const ROTATING = {
+  assignment: { mode: 'rotate', people: ['Jacin Carreiro', 'Francis Ferrer', 'Alex Patapis'] },
+  users: REROOF.users,
+};
+
+test('a rotating department goes round in order and wraps', () => {
+  assert.equal(nextAssignee(ROTATING, 0), 'Jacin Carreiro');
+  assert.equal(nextAssignee(ROTATING, 1), 'Francis Ferrer');
+  assert.equal(nextAssignee(ROTATING, 2), 'Alex Patapis');
+  assert.equal(nextAssignee(ROTATING, 3), 'Jacin Carreiro');
 });
 
 test('a department with no rule assigns nobody rather than guessing', () => {
@@ -24,13 +35,16 @@ test('a department with no rule assigns nobody rather than guessing', () => {
 });
 
 test('a hand-edited pointer that is out of range still resolves', () => {
-  assert.equal(nextAssignee(REROOF, -1), 'Alex Patapis');
-  assert.equal(nextAssignee(REROOF, 99), nextAssignee(REROOF, 0));
+  assert.equal(nextAssignee(ROTATING, -1), 'Alex Patapis');
+  assert.equal(nextAssignee(ROTATING, 99), nextAssignee(ROTATING, 0));
+  // A fixed department ignores the pointer entirely.
+  assert.equal(nextAssignee(REROOF, -1), 'Jacin Carreiro');
 });
 
 test('only rotating departments move the pointer', () => {
-  assert.equal(advance(REROOF, 0), 1);
-  assert.equal(advance(REROOF, 2), 0);
+  assert.equal(advance(ROTATING, 0), 1);
+  assert.equal(advance(ROTATING, 2), 0);
+  assert.equal(advance(REROOF, 5), 5);
   assert.equal(advance(SERVICE, 5), 5);
   assert.equal(advance(NEW_CONSTRUCTION, 3), 3);
 });
@@ -38,10 +52,16 @@ test('only rotating departments move the pointer', () => {
 // "if it is unflagged and put in, then the next person will get it.
 //  if it dies then nothing happens"
 test('a clean lead is assigned to whoever is up, and only then does the turn move', () => {
-  const decision = assignmentDecision({ lead: {}, department: REROOF, pointer: 1 });
+  const decision = assignmentDecision({ lead: {}, department: ROTATING, pointer: 1 });
   assert.equal(decision.assign, 'Francis Ferrer');
   assert.equal(decision.flag, false);
-  assert.equal(advance(REROOF, 1), 2);
+  assert.equal(advance(ROTATING, 1), 2);
+});
+
+test('a clean lead in a fixed department goes to that person', () => {
+  const decision = assignmentDecision({ lead: {}, department: REROOF, pointer: 1 });
+  assert.equal(decision.assign, 'Jacin Carreiro');
+  assert.equal(decision.flag, false);
 });
 
 test('a flagged lead does not consume anyone turn', () => {

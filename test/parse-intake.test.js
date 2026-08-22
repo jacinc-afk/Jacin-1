@@ -208,3 +208,105 @@ test('the comma recovery leaves well-formed addresses alone', () => {
 test('a two-part address with no street suffix stays unparsed rather than guessed', () => {
   assert.equal(parseAddress('some place over there, FL 33455'), null);
 });
+
+// Real post from SB | Re Roof, 12:53 PM. Under the old parser this produced
+// nothing at all — the gate was the literal string "Customer Name:", and this
+// template says "Name:". Every Re Roof lead was being read as chatter.
+test('the Re Roof inline template parses', () => {
+  const [lead] = parseIntakePosts(`Name: Nicole Reyes
+Best Callback: [9544711838](tel:9544711838)
+Call Type:| New Client |
+Email: [reyesmn23@gmail.com](mailto:reyesmn23@gmail.com)
+Referred By: Neighborhood
+Homeowner: Yes
+Address: 1215 Nw 8th Ct
+Zip Code: 33426
+City: Boynton Beach
+State: FL
+Mailing Address: Yes
+Reason: She is looking for a roof quote for this upcoming Friday afternoon.`);
+
+  assert.equal(lead.firstName, 'Nicole');
+  assert.equal(lead.lastName, 'Reyes');
+  assert.equal(lead.phone, '9544711838');
+  assert.equal(lead.email, 'reyesmn23@gmail.com');
+  // Assembled from four separate fields, not one "Property Address" line.
+  assert.deepEqual(lead.address, {
+    street1: '1215 Nw 8th Ct',
+    city: 'Boynton Beach',
+    state: 'FL',
+    zipCode: '33426',
+    country: 'US',
+  });
+  // The template's own pipes are not part of the value.
+  assert.equal(lead.callType, 'New Client');
+  assert.equal(lead.homeowner, 'Yes');
+});
+
+// The same fields with the label on one line and the value on the next.
+test('the Re Roof stacked template parses', () => {
+  const [lead] = parseIntakePosts(`Name
+Juan Portobanco
+Best Callback
+5615551234
+Email
+portobancod@gmail.com
+Referred By
+Google
+Address
+8321 Bermuda Sound Way
+Zip Code
+33436
+City
+Boynton Beach
+State
+FL
+Reason
+Caller is looking to get a roof replacement, current material is Tiles.`);
+
+  assert.equal(lead.firstName, 'Juan');
+  assert.equal(lead.phone, '5615551234');
+  assert.equal(lead.address.city, 'Boynton Beach');
+  assert.equal(lead.address.zipCode, '33436');
+});
+
+// The Repairs template must keep working — it is what every lead created so
+// far came from.
+test('the original Repairs template still parses', () => {
+  const [lead] = parseIntakePosts(`Customer Name: Gregory Barnett
+Phone: 5613692032
+Email: Barnett.Greg89@gmail.com
+Property Address: 1520 S 24th Ct, Riviera Beach, FL 33404
+Reason for Call: he is looking for a terrace roof
+Lead Source: previous client`);
+
+  assert.equal(lead.lastName, 'Barnett');
+  assert.equal(lead.phone, '5613692032');
+  assert.equal(lead.address.city, 'Riviera Beach');
+});
+
+// A name with nothing else is conversation. One more field of any kind is a
+// form — the gate is deliberately easy to satisfy, because a junk record costs
+// five seconds and a dropped lead costs a customer.
+test('a bare name is not a lead, but a name plus anything is', () => {
+  assert.equal(parseIntakePosts('Name? I forget\nwho was that').length, 0);
+  assert.equal(parseIntakePosts('Name\nBob').length, 0);
+  assert.equal(parseIntakePosts('Name: Bob\nReason: leak over the porch').length, 1);
+});
+
+// Half an address is worse than none: it would file the lead under the wrong
+// property, which is exactly what the history search relies on being right.
+test('an incomplete set of address parts yields no address', () => {
+  const [lead] = parseIntakePosts(`Name: Partial Person
+Address: 123 Main St
+City: Boynton Beach
+Reason: no state or zip given`);
+
+  assert.equal(lead.address, null);
+  assert.equal(lead.rawAddress, null);
+});
+
+test('intake typing "Neighborhood" matches the configured lead source', () => {
+  const [lead] = parseIntakePosts('Name: Ann Lee\nReferred By: Neighborhood');
+  assert.ok(lead.leadSourceId, 'should match "Working in the neighborhood"');
+});

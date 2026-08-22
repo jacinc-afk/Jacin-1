@@ -31,9 +31,13 @@ export const REROOF = {
   company: 'SeaBreeze Roofing REROOF Department',
   keyVar: 'ACCULYNX_KEY_REROOF',
 
-  // Round-robin. Skipped when the intake names a salesperson, or the customer
-  // has prior jobs under a different rep — those get flagged instead.
-  assignment: { mode: 'rotate', people: ['Jacin Carreiro', 'Francis Ferrer', 'Alex Patapis'] },
+  // Everything goes to Jacin for now. This was a three-way rotation
+  // (Jacin -> Francis -> Alex); the rotation machinery is still in place, so
+  // restoring it is a one-line change back to
+  //   { mode: 'rotate', people: ['Jacin Carreiro', 'Francis Ferrer', 'Alex Patapis'] }
+  // Still skipped when the intake names a salesperson, or the customer has
+  // prior jobs under a different rep — those get flagged instead.
+  assignment: { mode: 'fixed', people: ['Jacin Carreiro'] },
 
   users: {
     'Alex Patapis': '570e29fd-a208-4e9e-9c30-873fc2ff95f2',
@@ -104,7 +108,8 @@ export const SERVICE = {
   key: 'service',
   company: 'SeaBreeze Roofing Service Department',
   keyVar: 'ACCULYNX_KEY_SERVICE',
-  assignment: { mode: 'fixed', people: ['Alex Patapis'] },
+  // Was Alex Patapis; everything goes to Jacin for now.
+  assignment: { mode: 'fixed', people: ['Jacin Carreiro'] },
 
   users: {
     'Alex Patapis': '040abed8-78e8-49ff-942f-40c99f36055b',

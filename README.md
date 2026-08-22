@@ -42,9 +42,13 @@ Sets the job's **Company Representative**.
 
 | Department | Rule |
 | --- | --- |
-| Reroof | Rotates Jacin → Francis → Alex → Jacin |
-| Repairs | Alex |
+| Reroof | Jacin |
+| Repairs | Jacin |
 | Warranties | Jacin |
+
+Everything goes to Jacin. Reroof used to rotate Jacin → Francis → Alex and
+repairs went to Alex; the rotation code and its tests are still here, so
+putting it back is a one-line edit per department in `src/departments.js`.
 
 Two things stop an automatic assignment, both cases where picking a name would
 override a decision a person already made:
@@ -55,13 +59,13 @@ override a decision a person already made:
 Those get flagged instead. A prior job under whoever is up anyway is not a
 conflict, and neither is a prior job with nobody on it.
 
-**The rotation pointer moves only on a real assignment.** A flagged lead does
-not consume anyone's turn — the rotation exists to be fair, and skipping
-someone because a lead was ambiguous is not fair to them. A lead that is
-assigned and then dies does not give the turn back.
-
-The pointer lives in `state/rotation.json` and is meant to be edited by hand
-when that is the right answer.
+While every department is fixed, no pointer moves and `state/rotation.json`
+just sits there. When a rotation is switched back on: **the pointer moves only
+on a real assignment.** A flagged lead does not consume anyone's turn — the
+rotation exists to be fair, and skipping someone because a lead was ambiguous
+is not fair to them. A lead that is assigned and then dies does not give the
+turn back. The pointer is a plain file, meant to be edited by hand when that is
+the right answer.
 
 ## What the history search can and cannot find
 
@@ -127,9 +131,6 @@ Saturday** — which is roughly 7am to 7pm in Florida in summer and 6am to 6pm
 in winter, so the working day is covered without chasing the clock change. A
 lead posted at 9:05 is in AccuLynx and assigned before 9:30.
 
-**GitHub only runs scheduled workflows from the default branch.** Until this is
-merged to `main`, the schedule does not exist and nothing fires on its own.
-
 A scheduled run applies for real, targets `live`, and looks back two days. The
 two days are deliberate overlap: a few hours of failed runs, or a GitHub
 outage, costs nothing because anything already synced is skipped by its dedup
@@ -181,7 +182,7 @@ src/discover*.js       read-only ID discovery
 npm test
 ```
 
-51 tests, no dependencies beyond the Anthropic SDK. The fixtures are real posts
+64 tests, no dependencies beyond the Anthropic SDK. The fixtures are real posts
 from the channels, and they have caught real defects — an option row in the
 template being absorbed into the field above it, and RingCentral rewriting
 email addresses as markdown autolinks that AccuLynx then rejects.
